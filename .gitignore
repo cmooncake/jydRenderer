@@ -1,0 +1,13 @@
+build/
+.vs/
+out/
+.vscode/
+.idea/
+compile_commands.json
+*.user
+*.suo
+*.obj
+*.o
+*.exe
+*.pdb
+*.ilk

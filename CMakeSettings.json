@@ -1,0 +1,15 @@
+{
+  "configurations": [
+    {
+      "name": "vs2022-no-vcpkg",
+      "generator": "Visual Studio 17 2022",
+      "configurationType": "Debug",
+      "buildRoot": "${projectDir}\\build\\vs2022-x64",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "vcpkgConfiguration": "Disabled"
+    }
+  ]
+}
