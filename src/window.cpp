@@ -78,14 +78,13 @@ bool Window::pollEvents(Renderer& renderer) {
 #if defined(JYD_USE_SDL2)
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        switch (event.type)
-        {
-            case SDL_QUIT:return false;break;
-            case SDL_KEYDOWN:
-            {
+        switch (event.type) {
+            case SDL_QUIT:
+                return false;
+
+            case SDL_KEYDOWN: {
                 Camera& camera = renderer.getCamera();
-                switch (event.key.keysym.scancode)
-                {
+                switch (event.key.keysym.scancode) {
                 case SDL_SCANCODE_W: camera.moveForward(0.1); break;
                 case SDL_SCANCODE_S: camera.moveBackward(0.1); break;
                 case SDL_SCANCODE_A: camera.strafeLeft(0.1); break;
@@ -94,14 +93,42 @@ bool Window::pollEvents(Renderer& renderer) {
                 case SDL_SCANCODE_E: camera.moveDown(0.1); break;
                 default: break;
                 }
-            }
                 break;
-            case SDL_KEYUP:
+            }
+
+            case SDL_MOUSEBUTTONDOWN:
+                if (event.button.button == SDL_BUTTON_RIGHT) {
+                    dragging_ = true;
+                    lastMouseX_ = event.button.x;
+                    lastMouseY_ = event.button.y;
+                }
+                break;
+
+            case SDL_MOUSEMOTION:
+                if (dragging_ || (event.motion.state & SDL_BUTTON_RMASK)) {
+                    const int deltaX = event.motion.x - lastMouseX_;
+                    const int deltaY = event.motion.y - lastMouseY_;
+                    if (deltaX != 0 || deltaY != 0) {
+                        renderer.getCamera().rotate(deltaX, deltaY);
+                    }
+                    lastMouseX_ = event.motion.x;
+                    lastMouseY_ = event.motion.y;
+                }
+                break;
+
+            case SDL_MOUSEBUTTONUP:
+                if (event.button.button == SDL_BUTTON_RIGHT) {
+                    dragging_ = false;
+                }
+                break;
+
+            default:
                 break;
         }
     }
     return true;
 #else
+    (void)renderer;
     return false;
 #endif
 }

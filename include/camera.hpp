@@ -36,6 +36,53 @@ struct Camera {
         return normalize(cross(lookAtDirection_, upDirection_));
     }
 
+    void rotate(double deltaX, double deltaY) {
+        const double sensitivity = 0.005;
+        const double yaw = deltaX * sensitivity;
+        const double pitch = -deltaY * sensitivity;
+
+        // 获取当前右向量（单位向量），用于俯仰旋转的轴
+        vec3 r = right();
+        r = normalize(r);  // 确保归一化
+
+        // 罗德里格旋转公式：将向量 v 绕单位轴 axis 旋转 angle 弧度
+        auto rotateVector = [](const vec3& v, const vec3& axis, double angle) -> vec3 {
+            double c = cos(angle);
+            double s = sin(angle);
+            double k = 1.0 - c;
+            return v * c + cross(axis, v) * s + axis * (axis*v) * k;
+            };
+
+        // 1. 偏航：绕世界 Y 轴旋转
+        vec3 worldUp = vec3(0.0, 1.0, 0.0);
+        lookAtDirection_ = rotateVector(lookAtDirection_, worldUp, yaw);
+        upDirection_ = rotateVector(upDirection_, worldUp, yaw);  // 实际 up 不变，但保留通用性
+
+        // 2. 俯仰：绕局部右向量旋转（重新计算 r，因为 lookAt 变了）
+        r = right();
+        r = normalize(r);
+        lookAtDirection_ = rotateVector(lookAtDirection_, r, pitch);
+        upDirection_ = rotateVector(upDirection_, r, pitch);
+
+        // 3. 正交化与归一化（保证基向量相互垂直且单位长度）
+        lookAtDirection_ = normalize(lookAtDirection_);
+        // 用格拉姆-施密特将 up 投影到垂直于 lookAt 的方向
+        upDirection_ = upDirection_ - (upDirection_* lookAtDirection_) * lookAtDirection_;
+        upDirection_ = normalize(upDirection_);
+
+        // 4. 防止俯仰过度导致“翻跟头”（限制视线与 Y 轴的夹角）
+        // 若视线方向接近垂直，则裁剪到 ±89° 等效范围
+        const double limit = 0.99;
+        if (fabs(lookAtDirection_.y) > limit) {
+            lookAtDirection_.y = (lookAtDirection_.y > 0) ? limit : -limit;
+            lookAtDirection_ = normalize(lookAtDirection_);
+            // 重新正交化 up
+            upDirection_ = vec3(0.0, 1.0, 0.0);  // 或者重新计算，这里简单重置
+            upDirection_ = upDirection_ - (upDirection_* lookAtDirection_) * lookAtDirection_;
+            upDirection_ = normalize(upDirection_);
+        }
+    }
+
     void moveForward(double d) {
         position_ = position_ + lookAtDirection_ * d;
     }

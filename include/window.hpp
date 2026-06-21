@@ -22,6 +22,9 @@ private:
     void* handle_ = nullptr;
     void* surface_ = nullptr;
     void* texture_ = nullptr;
+    bool dragging_ = false;
+    int lastMouseX_ = 0;
+    int lastMouseY_ = 0;
 };
 
 } // namespace jyd
