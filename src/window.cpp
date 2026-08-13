@@ -74,23 +74,24 @@ Window::~Window() {
 #endif
 }
 
-bool Window::pollEvents(Renderer& renderer) {
+struct PollResult Window::pollEvents(Renderer& renderer) {
 #if defined(JYD_USE_SDL2)
     SDL_Event event;
+	struct PollResult res(true, false);
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
             case SDL_QUIT:
-                return false;
+                return PollResult(false,false);
 
             case SDL_KEYDOWN: {
                 Camera& camera = renderer.getCamera();
                 switch (event.key.keysym.scancode) {
-                case SDL_SCANCODE_W: camera.moveForward(0.1); break;
-                case SDL_SCANCODE_S: camera.moveBackward(0.1); break;
-                case SDL_SCANCODE_A: camera.strafeLeft(0.1); break;
-                case SDL_SCANCODE_D: camera.strafeRight(0.1); break;
-                case SDL_SCANCODE_Q: camera.moveUp(0.1); break;
-                case SDL_SCANCODE_E: camera.moveDown(0.1); break;
+                case SDL_SCANCODE_W: camera.moveForward(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_S: camera.moveBackward(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_A: camera.strafeLeft(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_D: camera.strafeRight(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_Q: camera.moveUp(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_E: camera.moveDown(0.1); res.needsRedraw = true; break;
                 default: break;
                 }
                 break;
@@ -110,6 +111,7 @@ bool Window::pollEvents(Renderer& renderer) {
                     const int deltaY = event.motion.y - lastMouseY_;
                     if (deltaX != 0 || deltaY != 0) {
                         renderer.getCamera().rotate(deltaX, deltaY);
+                        res.needsRedraw = true;
                     }
                     lastMouseX_ = event.motion.x;
                     lastMouseY_ = event.motion.y;
@@ -126,7 +128,7 @@ bool Window::pollEvents(Renderer& renderer) {
                 break;
         }
     }
-    return true;
+    return res;
 #else
     (void)renderer;
     return false;

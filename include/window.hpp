@@ -5,6 +5,14 @@
 
 namespace jyd {
 
+struct PollResult {
+     bool running;
+     bool needsRedraw;
+     PollResult() : running(true), needsRedraw(false) {}
+     PollResult(bool r, bool d) : running(r), needsRedraw(d) {}
+     PollResult(const PollResult & instance) : running(instance.running), needsRedraw(instance.needsRedraw) {}
+};
+
 class Window {
 public:
     Window(const char* title, int width, int height);
@@ -13,7 +21,7 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
 
-    bool pollEvents(Renderer& renderer);
+    struct PollResult pollEvents(Renderer& renderer);
     void present(const Framebuffer& framebuffer);
 
 private:
