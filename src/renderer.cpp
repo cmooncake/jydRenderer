@@ -70,6 +70,60 @@ std::vector<vec4> clipToViewFrustum(std::vector<vec4> polygon) {
     return polygon;
 }
 
+double clipDistance(const Commonv2f& vertex, int plane) {
+    return clipDistance(vertex.position, plane);
+}
+
+Commonv2f interpolateClipVertex(
+    const Commonv2f& from,
+    const Commonv2f& to,
+    double t) {
+    return {
+        from.position + (to.position - from.position) * t,
+        from.normal + (to.normal - from.normal) * t,
+    };
+}
+
+std::vector<Commonv2f> clipAgainstPlane(
+    const std::vector<Commonv2f>& polygon,
+    int plane) {
+    std::vector<Commonv2f> output;
+    if (polygon.empty()) {
+        return output;
+    }
+
+    Commonv2f previous = polygon.back();
+    double previousDistance = clipDistance(previous, plane);
+    bool previousInside = previousDistance >= 0.0;
+
+    for (const Commonv2f& current : polygon) {
+        const double currentDistance = clipDistance(current, plane);
+        const bool currentInside = currentDistance >= 0.0;
+
+        if (currentInside != previousInside) {
+            const double t = previousDistance /
+                (previousDistance - currentDistance);
+            output.push_back(interpolateClipVertex(previous, current, t));
+        }
+        if (currentInside) {
+            output.push_back(current);
+        }
+
+        previous = current;
+        previousDistance = currentDistance;
+        previousInside = currentInside;
+    }
+    return output;
+}
+
+std::vector<Commonv2f> clipToViewFrustum(
+    std::vector<Commonv2f> polygon) {
+    for (int plane = 0; plane < 6 && !polygon.empty(); ++plane) {
+        polygon = clipAgainstPlane(polygon, plane);
+    }
+    return polygon;
+}
+
 } // namespace
 
 Renderer::Renderer(Framebuffer& framebuffer)
@@ -216,7 +270,7 @@ void Renderer::drawTriangle_barycentric(int x0, int y0, double z0, int x1, int y
 }
 
 
-void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const IShader& shader)
+void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const CommonShader& shader, const Commonv2f (&vertices)[3])
 {
     int lb = std::max(0, std::min({ x0, x1, x2 }));
     int rb = std::min(framebuffer_.width() - 1, std::max({ x0, x1, x2 }));
@@ -240,12 +294,33 @@ void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, 
             double z_current = getZbuffer(x, y);
             if (zbuf < z_current)
             {
+                const double correctedAlpha = alpha / vertices[0].position[3];
+                const double correctedBeta = beta / vertices[1].position[3];
+                const double correctedGamma = gamma / vertices[2].position[3];
+                const double denominator =
+                    correctedAlpha + correctedBeta + correctedGamma;
+                if (std::abs(denominator) < 1e-12) {
+                    continue;
+                }
+
+                Commonv2f fragmentInput;
+                fragmentInput.position =
+                    (vertices[0].position * correctedAlpha +
+                     vertices[1].position * correctedBeta +
+                     vertices[2].position * correctedGamma) /
+                    denominator;
+                fragmentInput.normal = normalize(
+                    (vertices[0].normal * correctedAlpha +
+                     vertices[1].normal * correctedBeta +
+                     vertices[2].normal * correctedGamma) /
+                    denominator);
+
+				Color color{};
+                if (shader.fragment(fragmentInput, color)) {
+                    continue;
+                }
+
                 setZbuffer(x, y, zbuf);
-                //framebuffer_.setPixel(x, y, { static_cast < std::uint8_t>(color.r*alpha),  static_cast < std::uint8_t>(color.g *beta) ,  static_cast < std::uint8_t>(color.b*gamma), color.a});
-                const double depthShade =
-                    std::clamp(0.5 * (1.0 - zbuf), 0.0, 1.0);
-				Color color;
-                shader.fragment(vec3(depthShade), color);
                 framebuffer_.setPixel(x, y, color);
             }
         }
@@ -321,6 +396,7 @@ void Renderer::drawModel(const Model& model)
 void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
 {
     shader.mvp = camera.projectionMatrix() * camera.viewTransformation();
+	shader.vp = camera.viewTransformation();
     const double halfW = static_cast<double>(framebuffer_.width()) * 0.5;
     const double halfH = static_cast<double>(framebuffer_.height()) * 0.5;
 
@@ -331,10 +407,16 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
             vec3(model.verts[face[2]][0], model.verts[face[2]][1], model.verts[face[2]][2]),
         };
 
-        std::vector<vec4> polygon;
+        vec3 worldNormals[3] = {
+            vec3(model.vnormals[face[0]][0], model.vnormals[face[0]][1], model.vnormals[face[0]][2]),
+            vec3(model.vnormals[face[1]][0], model.vnormals[face[1]][1], model.vnormals[face[1]][2]),
+            vec3(model.vnormals[face[2]][0], model.vnormals[face[2]][1], model.vnormals[face[2]][2]),
+        };
+
+        std::vector<Commonv2f> polygon;
         polygon.reserve(3);
         for (int i = 0; i < 3; ++i) {
-            polygon.push_back(shader.vertex(world[i]));
+            polygon.push_back(shader.vertex({ world[i], worldNormals[i] }));
         }
 
         polygon = clipToViewFrustum(std::move(polygon));
@@ -343,19 +425,20 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
         }
 
         for (std::size_t triangle = 1; triangle + 1 < polygon.size(); ++triangle) {
-            const vec4 clip[3] = {
+            const Commonv2f clippedVertices[3] = {
                 polygon[0], polygon[triangle], polygon[triangle + 1]
             };
             vec3 ndc[3];
             bool valid = true;
 
             for (int i = 0; i < 3; ++i) {
-                if (!std::isfinite(clip[i][3]) ||
-                    std::abs(clip[i][3]) < 1e-12) {
+                const vec4& clipPosition = clippedVertices[i].position;
+                if (!std::isfinite(clipPosition[3]) ||
+                    std::abs(clipPosition[3]) < 1e-12) {
                     valid = false;
                     break;
                 }
-                const vec4 divided = clip[i] / clip[i][3];
+                const vec4 divided = clipPosition / clipPosition[3];
                 if (!std::isfinite(divided[0]) ||
                     !std::isfinite(divided[1]) ||
                     !std::isfinite(divided[2])) {
@@ -375,11 +458,17 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
             const int x2 = static_cast<int>((ndc[2][0] + 1.0) * halfW);
             const int y2 = static_cast<int>((1.0 - ndc[2][1]) * halfH);
 
-            drawTriangle_barycentric(
+            //drawTriangle_barycentric(
+            //    x0, y0, ndc[0][2],
+            //    x1, y1, ndc[1][2],
+            //    x2, y2, ndc[2][2],
+            //    { 211, 211, 211, 255 });
+            drawTriangle_byShader(
                 x0, y0, ndc[0][2],
                 x1, y1, ndc[1][2],
                 x2, y2, ndc[2][2],
-                { 211, 211, 211, 255 });
+                shader,
+                clippedVertices);
         }
     }
 }

@@ -6,6 +6,7 @@ namespace jyd {
     class Model {
     public:
         std::vector<std::vector<float>> verts = {};
+        std::vector<std::vector<float>> vnormals = {};
         std::vector<std::vector<int>> facet = {};
     public:
         Model(const std::string filename);

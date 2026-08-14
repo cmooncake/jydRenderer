@@ -34,6 +34,13 @@ namespace jyd
                 }
                 facet.push_back(face);
             }
+            else if (!line.compare(0, 3, "vn ")) {
+                iss >> trash;
+                iss >> trash;
+                std::vector<float> vn = { 0,0,0 };
+                for (int i : {0, 1, 2}) iss >> vn[i];
+                vnormals.push_back(vn);
+            }
         }
        
     }
