@@ -335,9 +335,9 @@ void Renderer::drawModel(const Model& model)
 
     for (const auto& face : model.facet) {
         vec3 world[3] = {
-            vec3(model.verts[face[0]][0], model.verts[face[0]][1], model.verts[face[0]][2]),
-            vec3(model.verts[face[1]][0], model.verts[face[1]][1], model.verts[face[1]][2]),
-            vec3(model.verts[face[2]][0], model.verts[face[2]][1], model.verts[face[2]][2]),
+            vec3(model.verts[face[0].positionIndex][0], model.verts[face[0].positionIndex][1], model.verts[face[0].positionIndex][2]),
+            vec3(model.verts[face[1].positionIndex][0], model.verts[face[1].positionIndex][1], model.verts[face[1].positionIndex][2]),
+            vec3(model.verts[face[2].positionIndex][0], model.verts[face[2].positionIndex][1], model.verts[face[2].positionIndex][2]),
         };
 
         std::vector<vec4> polygon;
@@ -402,16 +402,31 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
 
     for (const auto& face : model.facet) {
         vec3 world[3] = {
-            vec3(model.verts[face[0]][0], model.verts[face[0]][1], model.verts[face[0]][2]),
-            vec3(model.verts[face[1]][0], model.verts[face[1]][1], model.verts[face[1]][2]),
-            vec3(model.verts[face[2]][0], model.verts[face[2]][1], model.verts[face[2]][2]),
+            vec3(model.verts[face[0].positionIndex][0], model.verts[face[0].positionIndex][1], model.verts[face[0].positionIndex][2]),
+            vec3(model.verts[face[1].positionIndex][0], model.verts[face[1].positionIndex][1], model.verts[face[1].positionIndex][2]),
+            vec3(model.verts[face[2].positionIndex][0], model.verts[face[2].positionIndex][1], model.verts[face[2].positionIndex][2]),
         };
 
-        vec3 worldNormals[3] = {
-            vec3(model.vnormals[face[0]][0], model.vnormals[face[0]][1], model.vnormals[face[0]][2]),
-            vec3(model.vnormals[face[1]][0], model.vnormals[face[1]][1], model.vnormals[face[1]][2]),
-            vec3(model.vnormals[face[2]][0], model.vnormals[face[2]][1], model.vnormals[face[2]][2]),
-        };
+        vec3 faceNormal = cross(world[1] - world[0], world[2] - world[0]);
+        const double faceNormalLength = norm(faceNormal);
+        if (faceNormalLength < 1e-12) {
+            continue;
+        }
+        faceNormal /= faceNormalLength;
+
+        vec3 worldNormals[3];
+        for (int i = 0; i < 3; ++i) {
+            const int normalIndex = face[i].normalIndex;
+            if (normalIndex >= 0 &&
+                static_cast<std::size_t>(normalIndex) < model.vnormals.size()) {
+                worldNormals[i] = vec3(
+                    model.vnormals[normalIndex][0],
+                    model.vnormals[normalIndex][1],
+                    model.vnormals[normalIndex][2]);
+            } else {
+                worldNormals[i] = faceNormal;
+            }
+        }
 
         std::vector<Commonv2f> polygon;
         polygon.reserve(3);

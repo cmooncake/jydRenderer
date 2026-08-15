@@ -21,6 +21,30 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(JYD_USE_SDL2 "Use SDL2 for window and framebuffer display" ON)
 
+# Qt's CMake package is normally found through CMAKE_PREFIX_PATH. When qmake
+# is already available on PATH, also use its installation prefix so a clean
+# Visual Studio configure works without a machine-specific path in this file.
+find_program(JYD_QMAKE_EXECUTABLE NAMES qmake6 qmake)
+if(JYD_QMAKE_EXECUTABLE)
+    execute_process(
+        COMMAND "${JYD_QMAKE_EXECUTABLE}" -query QT_INSTALL_PREFIX
+        OUTPUT_VARIABLE JYD_QT_INSTALL_PREFIX
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(JYD_QT_INSTALL_PREFIX)
+        list(PREPEND CMAKE_PREFIX_PATH "${JYD_QT_INSTALL_PREFIX}")
+    endif()
+endif()
+
+find_package(Qt6 COMPONENTS Widgets QUIET)
+if(Qt6_FOUND)
+    set(JYD_QT_WIDGETS_TARGET Qt6::Widgets)
+else()
+    find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets)
+    set(JYD_QT_WIDGETS_TARGET Qt5::Widgets)
+endif()
+
 if(JYD_USE_SDL2)
     find_package(SDL2 CONFIG QUIET)
     if(NOT SDL2_FOUND)
@@ -48,11 +72,15 @@ add_executable(jydRenderer
     src/renderer.cpp
     src/framebuffer.cpp
     src/window.cpp
- "src/model.cpp")
+    src/model.cpp
+    src/model_selection_dialog.cpp
+)
 
 target_include_directories(jydRenderer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
+
+target_link_libraries(jydRenderer PRIVATE ${JYD_QT_WIDGETS_TARGET})
 
 if(JYD_USE_SDL2)
     if(TARGET SDL2::SDL2)
