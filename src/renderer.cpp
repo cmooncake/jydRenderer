@@ -81,6 +81,7 @@ Commonv2f interpolateClipVertex(
     return {
         from.position + (to.position - from.position) * t,
         from.normal + (to.normal - from.normal) * t,
+        from.texcoord + (to.texcoord - from.texcoord) * t,
     };
 }
 
@@ -314,6 +315,11 @@ void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, 
                      vertices[1].normal * correctedBeta +
                      vertices[2].normal * correctedGamma) /
                     denominator);
+                fragmentInput.texcoord =
+                    (vertices[0].texcoord * correctedAlpha +
+                        vertices[1].texcoord * correctedBeta +
+                        vertices[2].texcoord * correctedGamma) /
+                    denominator;
 
 				Color color{};
                 if (shader.fragment(fragmentInput, color)) {
@@ -428,10 +434,27 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
             }
         }
 
+        vec2 texcoords[3];
+
+        for (int i = 0; i < 3; ++i) {
+            const int texcoordIndex = face[i].texcoordIndex;
+
+            if (texcoordIndex >= 0 &&
+                static_cast<std::size_t>(texcoordIndex) < model.vtexcoords.size()) {
+                texcoords[i] = vec2(
+                    model.vtexcoords[texcoordIndex][0],
+                    model.vtexcoords[texcoordIndex][1]);
+            }
+            else {
+                texcoords[i] = vec2(0.0);
+            }
+        }
+
         std::vector<Commonv2f> polygon;
         polygon.reserve(3);
         for (int i = 0; i < 3; ++i) {
-            polygon.push_back(shader.vertex({ world[i], worldNormals[i] }));
+            polygon.push_back(shader.vertex(
+                { world[i], worldNormals[i], texcoords[i] }));
         }
 
         polygon = clipToViewFrustum(std::move(polygon));
@@ -465,7 +488,6 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
             if (!valid) {
                 continue;
             }
-
             const int x0 = static_cast<int>((ndc[0][0] + 1.0) * halfW);
             const int y0 = static_cast<int>((1.0 - ndc[0][1]) * halfH);
             const int x1 = static_cast<int>((ndc[1][0] + 1.0) * halfW);

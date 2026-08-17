@@ -93,10 +93,13 @@ add_executable(jydRenderer
     src/window.cpp
     src/model.cpp
     src/model_selection_dialog.cpp
+    src/texture.cpp
+    src/stb_image.cpp
 )
 
 target_include_directories(jydRenderer PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/stb
 )
 
 target_link_libraries(jydRenderer PRIVATE ${JYD_QT_WIDGETS_TARGET})

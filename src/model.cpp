@@ -31,6 +31,7 @@ jyd::FaceVertex parseFaceVertex(
     const std::string& token,
     std::size_t vertexCount,
     std::size_t normalCount,
+    std::size_t texcoordCount,
     std::size_t lineNumber) {
     const std::size_t firstSlash = token.find('/');
     const std::size_t secondSlash = firstSlash == std::string::npos
@@ -48,6 +49,22 @@ jyd::FaceVertex parseFaceVertex(
     try {
         result.positionIndex = resolveIndex(
             std::stoi(positionPart), vertexCount, lineNumber, "vertex");
+
+        if (firstSlash != std::string::npos) {
+            const std::size_t texcoordEnd =
+                secondSlash == std::string::npos ? token.size() : secondSlash;
+
+            if (texcoordEnd > firstSlash + 1) {
+                const std::string texcoordPart =
+                    token.substr(firstSlash + 1, texcoordEnd - firstSlash - 1);
+
+                result.texcoordIndex = static_cast<int>(resolveIndex(
+                    std::stoi(texcoordPart),
+                    texcoordCount,
+                    lineNumber,
+                    "texture coordinate"));
+            }
+        }
 
         if (secondSlash != std::string::npos && secondSlash + 1 < token.size()) {
             const std::string normalPart = token.substr(secondSlash + 1);
@@ -100,7 +117,11 @@ namespace jyd
                 std::string token;
                 while (iss >> token) {
                     polygon.push_back(parseFaceVertex(
-                        token, verts.size(), vnormals.size(), lineNumber));
+                        token,
+                        verts.size(),
+                        vnormals.size(),
+                        vtexcoords.size(),
+                        lineNumber));
                 }
                 if (polygon.size() < 3) {
                     throw std::runtime_error(
@@ -121,6 +142,19 @@ namespace jyd
                         ": invalid normal");
                 }
                 vnormals.push_back(vn);
+            }
+            else if (!line.compare(0, 3, "vt ")) {
+                std::string prefix;
+                iss >> prefix;
+
+                std::vector<float> vt = { 0.0f, 0.0f };
+                if (!(iss >> vt[0] >> vt[1])) {
+                    throw std::runtime_error(
+                        "OBJ line " + std::to_string(lineNumber) +
+                        ": invalid texture coordinate");
+                }
+
+                vtexcoords.push_back(vt);
             }
         }
 

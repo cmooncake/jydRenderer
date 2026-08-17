@@ -3,6 +3,7 @@
 #include "window.hpp"
 #include "model.hpp"
 #include "model_selection_dialog.hpp"
+#include "texture.hpp"
 
 #include <QApplication>
 #include <QByteArray>
@@ -17,7 +18,7 @@
 
 namespace {
 
-int runRenderer(const jyd::Model& model) {
+int runRenderer(const jyd::Model& model, const jyd::Texture& texture) {
     constexpr int kWidth = 1900;
     constexpr int kHeight = 1200;
 
@@ -34,6 +35,8 @@ int runRenderer(const jyd::Model& model) {
             renderer.clear({ 20, 24, 33, 255 });
 
             jyd::CommonShader shader;
+            shader.texture = &texture;
+
             renderer.Pipeline(model, shader);
             window.present(framebuffer);
             init = true;
@@ -51,24 +54,40 @@ int main(int argc, char* argv[]) {
 
     try {
         std::optional<jyd::Model> model;
-        while (!model) {
+        std::optional<jyd::Texture> texture;
+        while (!model || !texture) {
             jyd::ModelSelectionDialog dialog;
             if (dialog.exec() != QDialog::Accepted) {
                 return 0;
             }
 
-            const QByteArray utf8Path = dialog.selectedFile().toUtf8();
+            const QByteArray modelPath =
+                dialog.selectedFile().toUtf8();
+
+            const QByteArray texturePath =
+                dialog.selectedTextureFile().toUtf8();
             try {
-                model.emplace(std::filesystem::u8path(utf8Path.constData()));
+                model.emplace(std::filesystem::u8path(
+                    modelPath.constData()));
+
+                texture.emplace(std::filesystem::u8path(
+                    texturePath.constData()));
             } catch (const std::exception& ex) {
+                model.reset();
+                texture.reset();
                 QMessageBox::critical(
                     nullptr,
-                    QObject::tr("Cannot load model"),
+                    QObject::tr("Cannot load resources"),
                     QString::fromUtf8(ex.what()));
             }
         }
-
-        return runRenderer(*model);
+        std::cout
+            << "Texture loaded: "
+            << texture->width()
+            << " x "
+            << texture->height()
+            << '\n';
+        return runRenderer(*model, *texture);
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << '\n';
         QMessageBox::critical(

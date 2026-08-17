@@ -3,6 +3,10 @@
 #include "framebuffer.hpp"
 #include "camera.hpp"
 #include "model.hpp"
+#include "texture.hpp"
+
+#include <algorithm>
+#include <cmath>
 
 namespace jyd {
 	template<typename a2v, typename v2f>
@@ -16,28 +20,46 @@ namespace jyd {
     struct Commona2v {
         vec3 position;
 		vec3 normal;
+        vec2 texcoord;
 	};
 
     struct Commonv2f {
         vec4 position;
         vec3 normal;
+        vec2 texcoord;
 	};
 
     struct CommonShader : public IShader<Commona2v, Commonv2f> {
         mat4 mvp;
 		mat4 vp;
+        const Texture* texture = nullptr;
         Commonv2f vertex(const Commona2v& vertex) const override {
             vec4 pos =  mvp * vec4(vertex.position, 1.0);
             vec4 n = normalize(vp * vec4(vertex.normal, 0.0));
 			
-			return { pos, vec3(n) };   
+			return { pos, vec3(n), vertex.texcoord };
         }
         bool fragment(const Commonv2f& f, Color& color) const override {
-            const double intensity = std::clamp(f.normal[2], 0.0, 1.0);
-            color = { static_cast<std::uint8_t>(intensity * 211),
-                      static_cast<std::uint8_t>(intensity * 211),
-                      static_cast<std::uint8_t>(intensity * 74),
-                      255 };
+            if (texture == nullptr) {
+                // Magenta makes a missing texture binding obvious.
+                color = { 255, 0, 255, 255 };
+                return false;
+            }
+
+            const Color texel = texture->sampleNearest(f.texcoord);
+
+            // Retain the simple diffuse light with a small ambient component.
+            const double diffuse =
+                std::clamp(f.normal[2], 0.0, 1.0);
+
+            const double lighting = 0.2 + diffuse * 0.8;
+
+            color = {
+                static_cast<std::uint8_t>(texel.r * lighting),
+                static_cast<std::uint8_t>(texel.g * lighting),
+                static_cast<std::uint8_t>(texel.b * lighting),
+                texel.a
+            };
             return false;
         }
     };

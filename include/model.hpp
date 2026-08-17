@@ -6,6 +6,7 @@
 namespace jyd {
     struct FaceVertex {
         std::size_t positionIndex = 0;
+        int texcoordIndex = -1;
         int normalIndex = -1;
     };
 
@@ -16,6 +17,7 @@ namespace jyd {
         std::vector<std::vector<float>> verts = {};
         std::vector<std::vector<float>> vnormals = {};
         std::vector<Face> facet = {};
+        std::vector<std::vector<float>> vtexcoords = {};
     public:
         explicit Model(const std::filesystem::path& filename);
         inline vec3& position() { return position_; }
