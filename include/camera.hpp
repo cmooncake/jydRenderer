@@ -44,7 +44,7 @@ struct Camera {
 
     void rotate(double deltaX, double deltaY) {
         constexpr double sensitivity = 0.005;
-        constexpr double pitchLimit = 1.553343; // 89бу
+        constexpr double pitchLimit = 1.553343; // 89 degrees
 
         yaw_ += deltaX * sensitivity;
         pitch_ -= deltaY * sensitivity;

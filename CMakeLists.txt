@@ -20,11 +20,20 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(JYD_USE_SDL2 "Use SDL2 for window and framebuffer display" ON)
+set(JYD_SDL2_SOURCE_DIR
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/SDL2"
+    CACHE PATH "Path to a local SDL2 source tree")
 
 # Qt's CMake package is normally found through CMAKE_PREFIX_PATH. When qmake
 # is already available on PATH, also use its installation prefix so a clean
 # Visual Studio configure works without a machine-specific path in this file.
-find_program(JYD_QMAKE_EXECUTABLE NAMES qmake6 qmake)
+find_program(JYD_QMAKE_EXECUTABLE
+    NAMES qmake6 qmake
+    HINTS
+        "$ENV{CONDA_PREFIX}/Library/bin"
+        "$ENV{USERPROFILE}/anaconda3/Library/bin"
+        "$ENV{USERPROFILE}/miniconda3/Library/bin"
+)
 if(JYD_QMAKE_EXECUTABLE)
     execute_process(
         COMMAND "${JYD_QMAKE_EXECUTABLE}" -query QT_INSTALL_PREFIX
@@ -51,7 +60,17 @@ if(JYD_USE_SDL2)
         find_package(SDL2 QUIET)
     endif()
 
-    if(NOT SDL2_FOUND)
+    if(NOT SDL2_FOUND AND EXISTS "${JYD_SDL2_SOURCE_DIR}/CMakeLists.txt")
+        message(STATUS "Using vendored SDL2 source: ${JYD_SDL2_SOURCE_DIR}")
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        set(SDL_TEST   OFF CACHE BOOL "" FORCE)
+        add_subdirectory(
+            "${JYD_SDL2_SOURCE_DIR}"
+            "${CMAKE_BINARY_DIR}/_deps/sdl2-build"
+            EXCLUDE_FROM_ALL
+        )
+    elseif(NOT SDL2_FOUND)
         message(STATUS "SDL2 not found via vcpkg/find_package; fetching from GitHub...")
         include(FetchContent)
         FetchContent_Declare(
@@ -98,6 +117,34 @@ if(MSVC)
     set_property(TARGET jydRenderer PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 else()
     target_compile_options(jydRenderer PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
+# Make the executable launched directly from Visual Studio self-contained
+# enough for local development. The release packaging script performs the
+# broader distribution deployment separately.
+if(WIN32)
+    option(JYD_DEPLOY_DEV_RUNTIME
+        "Copy Qt runtime DLLs next to the executable after a Windows build"
+        ON)
+    if(JYD_DEPLOY_DEV_RUNTIME)
+        if(NOT JYD_QT_INSTALL_PREFIX)
+            message(FATAL_ERROR
+                "Qt was found, but its installation prefix could not be queried. "
+                "Make qmake/qmake6 available or set CMAKE_PREFIX_PATH.")
+        endif()
+        find_program(JYD_POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+        add_custom_command(TARGET jydRenderer POST_BUILD
+            COMMAND "${JYD_POWERSHELL_EXECUTABLE}"
+                -NoProfile
+                -ExecutionPolicy Bypass
+                -File "${CMAKE_CURRENT_SOURCE_DIR}/scripts/deploy-windows-runtime.ps1"
+                -Executable "$<TARGET_FILE:jydRenderer>"
+                -QtPrefix "${JYD_QT_INSTALL_PREFIX}"
+                -Configuration "$<CONFIG>"
+            COMMENT "Deploying Qt runtime for direct Visual Studio launch"
+            VERBATIM
+        )
+    endif()
 endif()
 
 install(TARGETS jydRenderer RUNTIME DESTINATION bin)

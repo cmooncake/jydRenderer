@@ -38,7 +38,7 @@
     {
       "name": "vs2022-x64",
       "displayName": "Visual Studio 2022 x64",
-      "description": "VS2022 打开文件夹时使用；SDL2 无 vcpkg 时会自动 FetchContent 下载",
+      "description": "VS2022 打开文件夹时使用；默认使用 third_party/SDL2 本地源码",
       "inherits": "base-vs2022"
     },
     {

@@ -9,6 +9,8 @@ jydRenderer/
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── CMakeSettings.json
+├── third_party/
+│   └── SDL2/             # 固定版本 SDL2 本地源码
 ├── include/
 │   ├── framebuffer.hpp   # RGBA 像素缓冲
 │   ├── renderer.hpp      # 基础 2D 绘制（线、三角形）
@@ -26,7 +28,7 @@ jydRenderer/
 
 - CMake 3.20+（VS2022 自带，需勾选「使用 C++ 的桌面开发」）
 - Qt 5.15+ 或 Qt 6，需包含 Widgets 组件
-- SDL2（首次配置时 CMake 自动从 GitHub 下载，**无需 vcpkg**）
+- SDL2 2.30.10（源码已放在 `third_party/SDL2`，配置时不需要联网）
 - Ninja（可选，命令行构建用；VS2022 preset 不需要）
 
 ## Visual Studio 2022（推荐）
@@ -43,7 +45,7 @@ jydRenderer/
 1. **文件 → 打开 → 文件夹**，选择 `jydRenderer` 目录
 2. 顶部 CMake 配置下拉框选 **`Visual Studio 2022 x64`**（不要选 Ninja preset，除非在「x64 Native Tools 命令提示符」里用命令行）
 3. **项目 → 删除缓存并重新配置**
-4. 等待 CMake 配置完成（无 vcpkg 时会自动从 GitHub 下载 SDL2，首次需联网）
+4. 等待 CMake 配置完成；SDL2 使用仓库内本地源码，不需要访问 GitHub
 
 
 ### 3. 编译与运行
@@ -51,6 +53,10 @@ jydRenderer/
 - **生成 → 全部生成**（或 `Ctrl+Shift+B`）
 - 将启动项设为 **`jydRenderer.exe`**，按 **F5** 调试运行
 - 程序启动后先选择一个 `.obj` 模型；确认并加载成功后才会创建 SDL 渲染窗口
+
+Windows 下每次生成 `jydRenderer` 后，CMake 会自动把 Qt DLL、MSVC
+运行库和 `platforms/qwindows.dll` 部署到 Debug/Release 输出目录，因此可以
+直接在 Visual Studio 中按 F5 运行，不需要先执行打包脚本。
 
 生成目录：`build\vs2022-x64\Debug\jydRenderer.exe`
 
