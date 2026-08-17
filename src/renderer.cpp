@@ -281,7 +281,7 @@ void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, 
     if (lb > rb || bb > tb)
         return;
     double abc = area(x0, y0, x1, y1, x2, y2);
-    if (abc < 1e-10) return;
+    if (std::abs(abc) < 1e-10) return;
     for (int y = bb; y <= tb; y++)
     {
         for (int x = lb; x <= rb; x++)
