@@ -19,8 +19,8 @@
 namespace {
 
 int runRenderer(const jyd::Model& model, const jyd::Texture& texture) {
-    constexpr int kWidth = 1900;
-    constexpr int kHeight = 1200;
+    constexpr int kWidth = 1200;
+    constexpr int kHeight = 900;
 
     jyd::Window window("jydRenderer", kWidth, kHeight);
     jyd::Framebuffer framebuffer(kWidth, kHeight);
