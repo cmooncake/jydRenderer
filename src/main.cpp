@@ -12,13 +12,23 @@
 
 #include <filesystem>
 #include <iostream>
-#include <optional>
+#include <vector>
 #include <thread>
 #include <chrono>
 
 namespace {
 
-int runRenderer(const jyd::Model& model, const jyd::Texture& texture) {
+struct RenderItem {
+    jyd::Model model;
+    jyd::Texture texture;
+
+    RenderItem(
+        const std::filesystem::path& modelPath,
+        const std::filesystem::path& texturePath)
+        : model(modelPath), texture(texturePath) {}
+};
+
+int runRenderer(const std::vector<RenderItem>& scene) {
     constexpr int kWidth = 1200;
     constexpr int kHeight = 900;
 
@@ -35,9 +45,10 @@ int runRenderer(const jyd::Model& model, const jyd::Texture& texture) {
             renderer.clear({ 20, 24, 33, 255 });
 
             jyd::CommonShader shader;
-            shader.texture = &texture;
-
-            renderer.Pipeline(model, shader);
+            for (const RenderItem& item : scene) {
+                shader.texture = &item.texture;
+                renderer.Pipeline(item.model, shader);
+            }
             window.present(framebuffer);
             init = true;
         }
@@ -53,41 +64,42 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
 
     try {
-        std::optional<jyd::Model> model;
-        std::optional<jyd::Texture> texture;
-        while (!model || !texture) {
+        std::vector<RenderItem> scene;
+        while (true) {
             jyd::ModelSelectionDialog dialog;
             if (dialog.exec() != QDialog::Accepted) {
                 return 0;
             }
 
-            const QByteArray modelPath =
-                dialog.selectedFile().toUtf8();
-
-            const QByteArray texturePath =
-                dialog.selectedTextureFile().toUtf8();
             try {
-                model.emplace(std::filesystem::u8path(
-                    modelPath.constData()));
+                std::vector<RenderItem> loadedScene;
+                loadedScene.reserve(dialog.selections().size());
 
-                texture.emplace(std::filesystem::u8path(
-                    texturePath.constData()));
+                for (const jyd::ModelTextureSelection& selection :
+                     dialog.selections()) {
+                    const QByteArray modelPath =
+                        selection.modelFile.toUtf8();
+                    const QByteArray texturePath =
+                        selection.textureFile.toUtf8();
+
+                    loadedScene.emplace_back(
+                        std::filesystem::u8path(modelPath.constData()),
+                        std::filesystem::u8path(texturePath.constData()));
+                }
+
+                scene = std::move(loadedScene);
+                break;
             } catch (const std::exception& ex) {
-                model.reset();
-                texture.reset();
                 QMessageBox::critical(
                     nullptr,
                     QObject::tr("Cannot load resources"),
                     QString::fromUtf8(ex.what()));
             }
         }
-        std::cout
-            << "Texture loaded: "
-            << texture->width()
-            << " x "
-            << texture->height()
-            << '\n';
-        return runRenderer(*model, *texture);
+
+        std::cout << "Loaded " << scene.size()
+                  << " model/texture pair(s).\n";
+        return runRenderer(scene);
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << '\n';
         QMessageBox::critical(

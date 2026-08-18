@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QVBoxLayout>
@@ -14,12 +15,13 @@ namespace jyd {
 
 ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
     : QDialog(parent) {
-    setWindowTitle(tr("Select model"));
+    setWindowTitle(tr("Select models and textures"));
     setModal(true);
     setMinimumWidth(560);
 
     auto* description = new QLabel(
-        tr("Choose an OBJ model before starting the renderer."), this);
+        tr("Add one or more OBJ models with their corresponding textures."),
+        this);
     pathEdit_ = new QLineEdit(this);
     pathEdit_->setReadOnly(true);
     pathEdit_->setPlaceholderText(tr("No model selected"));
@@ -42,6 +44,19 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
     texturePathLayout->addWidget(texturePathEdit_, 1);
     texturePathLayout->addWidget(textureBrowseButton);
 
+    addButton_ = new QPushButton(tr("Add pair"), this);
+    addButton_->setEnabled(false);
+    removeButton_ = new QPushButton(tr("Remove selected"), this);
+    removeButton_->setEnabled(false);
+
+    auto* pairButtonLayout = new QHBoxLayout;
+    pairButtonLayout->addWidget(addButton_);
+    pairButtonLayout->addWidget(removeButton_);
+    pairButtonLayout->addStretch(1);
+
+    auto* addedLabel = new QLabel(tr("Models to render:"), this);
+    selectionList_ = new QListWidget(this);
+    selectionList_->setMinimumHeight(120);
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     confirmButton_ = buttons->button(QDialogButtonBox::Ok);
@@ -53,6 +68,9 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
     layout->addLayout(pathLayout);
     layout->addWidget(textureLabel);
     layout->addLayout(texturePathLayout);
+    layout->addLayout(pairButtonLayout);
+    layout->addWidget(addedLabel);
+    layout->addWidget(selectionList_);
     layout->addWidget(buttons);
 
     connect(browseButton, &QPushButton::clicked,
@@ -66,14 +84,19 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
         &QPushButton::clicked,
         this,
         [this] { browseTexture(); });
+    connect(addButton_, &QPushButton::clicked,
+            this, [this] { addSelection(); });
+    connect(removeButton_, &QPushButton::clicked,
+            this, [this] { removeSelected(); });
+    connect(selectionList_, &QListWidget::currentRowChanged,
+            this, [this](int row) {
+                removeButton_->setEnabled(row >= 0);
+            });
 }
 
-QString ModelSelectionDialog::selectedFile() const {
-    return pathEdit_->text();
-}
-
-QString ModelSelectionDialog::selectedTextureFile() const {
-    return texturePathEdit_->text();
+const std::vector<ModelTextureSelection>&
+ModelSelectionDialog::selections() const {
+    return selections_;
 }
 
 void ModelSelectionDialog::browse() {
@@ -103,7 +126,7 @@ void ModelSelectionDialog::browseTexture() {
     updateConfirmState();
 }
 
-void ModelSelectionDialog::updateConfirmState() {
+bool ModelSelectionDialog::currentSelectionValid() const {
     const QFileInfo modelFile(pathEdit_->text());
     const QFileInfo textureFile(texturePathEdit_->text());
 
@@ -120,32 +143,66 @@ void ModelSelectionDialog::updateConfirmState() {
         textureFile.isFile() &&
         textureFile.isReadable();
 
-    confirmButton_->setEnabled(modelValid && textureValid);
+    return modelValid && textureValid;
+}
+
+void ModelSelectionDialog::addSelection() {
+    if (!currentSelectionValid()) {
+        return;
+    }
+
+    const QString modelPath = QFileInfo(pathEdit_->text()).absoluteFilePath();
+    const QString texturePath =
+        QFileInfo(texturePathEdit_->text()).absoluteFilePath();
+
+    selections_.push_back({modelPath, texturePath});
+    selectionList_->addItem(
+        QFileInfo(modelPath).fileName() +
+        QStringLiteral("  ->  ") +
+        QFileInfo(texturePath).fileName());
+
+    pathEdit_->clear();
+    texturePathEdit_->clear();
+    updateConfirmState();
+}
+
+void ModelSelectionDialog::removeSelected() {
+    const int row = selectionList_->currentRow();
+    if (row < 0 || static_cast<std::size_t>(row) >= selections_.size()) {
+        return;
+    }
+
+    selections_.erase(selections_.begin() + row);
+    delete selectionList_->takeItem(row);
+    updateConfirmState();
+}
+
+void ModelSelectionDialog::updateConfirmState() {
+    const bool currentValid = currentSelectionValid();
+    const bool currentEmpty =
+        pathEdit_->text().isEmpty() && texturePathEdit_->text().isEmpty();
+
+    addButton_->setEnabled(currentValid);
+    confirmButton_->setEnabled(
+        currentValid || (!selections_.empty() && currentEmpty));
 }
 
 void ModelSelectionDialog::accept() {
-    const QFileInfo modelFile(pathEdit_->text());
-    if (!modelFile.exists() || !modelFile.isFile() || !modelFile.isReadable()) {
-        QMessageBox::warning(
-            this, tr("Invalid model"),
-            tr("The selected file does not exist or cannot be read."));
-        return;
+    if (currentSelectionValid()) {
+        addSelection();
     }
-    if (modelFile.suffix().compare(
-            QStringLiteral("obj"), Qt::CaseInsensitive) != 0) {
+
+    if (!pathEdit_->text().isEmpty() || !texturePathEdit_->text().isEmpty()) {
         QMessageBox::warning(
-            this, tr("Unsupported model"),
-            tr("Please select a Wavefront OBJ file."));
+            this, tr("Incomplete resource pair"),
+            tr("Select both an OBJ model and its texture, or add the completed pair."));
         return;
     }
 
-    const QFileInfo textureFile(texturePathEdit_->text());
-    if (!textureFile.exists() ||
-        !textureFile.isFile() ||
-        !textureFile.isReadable()) {
+    if (selections_.empty()) {
         QMessageBox::warning(
-            this, tr("Invalid texture"),
-            tr("The selected texture does not exist or cannot be read."));
+            this, tr("No models"),
+            tr("Add at least one model and texture pair."));
         return;
     }
 

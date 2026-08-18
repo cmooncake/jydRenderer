@@ -7,6 +7,9 @@ param(
 
     [string]$QtPrefix = "",
 
+    [ValidateSet("Auto", "MSVC", "MinGW")]
+    [string]$Toolchain = "Auto",
+
     [switch]$SkipBuild
 )
 
@@ -64,6 +67,173 @@ function Find-QMake {
         }
     }
     throw "Qt was not found. Add qmake/qmake6 to PATH or pass -QtPrefix."
+}
+
+function Get-QtInstallation {
+    param([Parameter(Mandatory = $true)][string]$QMake)
+
+    $prefix = (& $QMake -query QT_INSTALL_PREFIX 2>$null).Trim()
+    $versionText = (& $QMake -query QT_VERSION 2>$null).Trim()
+    $spec = (& $QMake -query QMAKE_XSPEC 2>$null).Trim()
+    $plugins = (& $QMake -query QT_INSTALL_PLUGINS 2>$null).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $prefix -or -not $versionText) {
+        return $null
+    }
+
+    $kind = if ($spec -match 'msvc') {
+        "MSVC"
+    } elseif ($spec.Contains("g++") -or $spec -match 'mingw') {
+        "MinGW"
+    } else {
+        "Unknown"
+    }
+    $version = [version]"0.0"
+    [void][version]::TryParse($versionText, [ref]$version)
+    return [pscustomobject]@{
+        QMake = [System.IO.Path]::GetFullPath($QMake)
+        Prefix = [System.IO.Path]::GetFullPath($prefix)
+        Version = $version
+        VersionText = $versionText
+        Spec = $spec
+        Kind = $kind
+        Plugins = [System.IO.Path]::GetFullPath($plugins)
+    }
+}
+
+function Find-QtInstallation {
+    param(
+        [string]$RequestedPrefix,
+        [string]$RequestedToolchain
+    )
+
+    $candidatePaths = @()
+    if ($RequestedPrefix) {
+        $candidatePaths += @(
+            (Join-Path (Join-Path $RequestedPrefix "bin") "qmake6.exe"),
+            (Join-Path (Join-Path $RequestedPrefix "bin") "qmake.exe")
+        )
+    } else {
+        foreach ($name in @("qmake6", "qmake")) {
+            $command = Get-Command $name -ErrorAction SilentlyContinue
+            if ($null -ne $command) {
+                $candidatePaths += $command.Source
+            }
+        }
+
+        $roots = @()
+        foreach ($environmentName in @("QTDIR", "Qt6_ROOT", "Qt5_ROOT")) {
+            $value = [Environment]::GetEnvironmentVariable($environmentName)
+            if ($value) {
+                $roots += $value
+            }
+        }
+        if ($env:CMAKE_PREFIX_PATH) {
+            $roots += @($env:CMAKE_PREFIX_PATH -split ';')
+        }
+        $roots += Join-Path $env:SystemDrive "Qt"
+        if ($env:USERPROFILE) {
+            $roots += Join-Path $env:USERPROFILE "Qt"
+        }
+        if ($env:LOCALAPPDATA) {
+            $roots += Join-Path $env:LOCALAPPDATA "Qt"
+        }
+
+        foreach ($root in ($roots | Where-Object { $_ } | Select-Object -Unique)) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+                continue
+            }
+            $candidatePaths += Join-Path (Join-Path $root "bin") "qmake.exe"
+            foreach ($versionDirectory in (Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue)) {
+                $candidatePaths += Join-Path (Join-Path $versionDirectory.FullName "bin") "qmake.exe"
+                foreach ($kitDirectory in (Get-ChildItem -LiteralPath $versionDirectory.FullName -Directory -ErrorAction SilentlyContinue)) {
+                    $candidatePaths += Join-Path (Join-Path $kitDirectory.FullName "bin") "qmake.exe"
+                }
+            }
+        }
+    }
+
+    $installations = @()
+    foreach ($candidate in ($candidatePaths | Select-Object -Unique)) {
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+            continue
+        }
+        $installation = Get-QtInstallation -QMake $candidate
+        if ($null -ne $installation -and $installation.Kind -ne "Unknown") {
+            $installations += $installation
+        }
+    }
+    if ($RequestedToolchain -ne "Auto") {
+        $installations = @($installations | Where-Object { $_.Kind -eq $RequestedToolchain })
+    }
+    if (-not $installations) {
+        throw "No compatible Qt installation was found. Install an x64 Qt MSVC or MinGW kit, add qmake to PATH, or pass -QtPrefix."
+    }
+
+    return $installations | Sort-Object @{ Expression = { if ($_.Kind -eq "MSVC") { 1 } else { 0 } }; Descending = $true }, @{ Expression = { $_.Version }; Descending = $true } | Select-Object -First 1
+}
+
+function Find-CMake {
+    param([string]$QtRoot)
+
+    $command = Get-Command "cmake" -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        return $command.Source
+    }
+
+    $candidates = @()
+    if ($QtRoot) {
+        $candidates += Join-Path $QtRoot "Tools\CMake_64\bin\cmake.exe"
+    }
+    $visualStudioRoot = Join-Path $env:ProgramFiles "Microsoft Visual Studio\2022"
+    if (Test-Path -LiteralPath $visualStudioRoot -PathType Container) {
+        $candidates += Get-ChildItem -Path (Join-Path $visualStudioRoot "*\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe") -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+    }
+    foreach ($candidate in $candidates) {
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return [System.IO.Path]::GetFullPath($candidate)
+        }
+    }
+    throw "CMake was not found on PATH, in the Qt Tools directory, or under Visual Studio 2022."
+}
+
+function Find-Ninja {
+    param([string]$QtRoot)
+
+    $command = Get-Command "ninja" -ErrorAction SilentlyContinue
+    if ($null -ne $command) {
+        return $command.Source
+    }
+    if ($QtRoot) {
+        $candidate = Join-Path $QtRoot "Tools\Ninja\ninja.exe"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+            return $candidate
+        }
+    }
+    throw "Ninja was not found on PATH or in the Qt Tools directory."
+}
+
+function Find-MinGwBinDirectory {
+    param([string]$QtRoot)
+
+    $gxx = Get-Command "g++" -ErrorAction SilentlyContinue
+    if ($null -ne $gxx) {
+        return Split-Path -Parent $gxx.Source
+    }
+    if ($QtRoot) {
+        $toolsDirectory = Join-Path $QtRoot "Tools"
+        if (Test-Path -LiteralPath $toolsDirectory -PathType Container) {
+            $candidate = Get-ChildItem -LiteralPath $toolsDirectory -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^mingw.*_64$' } |
+                Sort-Object Name -Descending |
+                ForEach-Object { Join-Path $_.FullName "bin" } |
+                Where-Object { Test-Path -LiteralPath (Join-Path $_ "g++.exe") -PathType Leaf } |
+                Select-Object -First 1
+            if ($candidate) {
+                return $candidate
+            }
+        }
+    }
+    throw "A 64-bit MinGW compiler was not found on PATH or in the Qt Tools directory."
 }
 
 function Find-DumpBin {
@@ -199,39 +369,77 @@ if (-not $stagingDirectory.StartsWith($outputPrefix, [System.StringComparison]::
     throw "Unsafe package output path."
 }
 
-$qmake = Find-QMake -RequestedPrefix $QtPrefix
-$detectedQtPrefix = (& $qmake -query QT_INSTALL_PREFIX).Trim()
-$qtVersion = (& $qmake -query QT_VERSION).Trim()
-$qtPluginDirectory = (& $qmake -query QT_INSTALL_PLUGINS).Trim()
-if ($LASTEXITCODE -ne 0 -or -not $detectedQtPrefix -or -not $qtVersion) {
-    throw "Unable to query the Qt installation with '$qmake'."
-}
-
+$qt = Find-QtInstallation -RequestedPrefix $QtPrefix -RequestedToolchain $Toolchain
+$detectedQtPrefix = $qt.Prefix
+$qtVersion = $qt.VersionText
+$qtPluginDirectory = $qt.Plugins
 $qtMajor = $qtVersion.Split('.')[0]
 $qtBinDirectory = Join-Path $detectedQtPrefix "bin"
-$buildPreset = "vs2022-x64-$($Configuration.ToLowerInvariant())"
-$executable = Join-Path $repositoryRoot "build\vs2022-x64\$Configuration\jydRenderer.exe"
+$qtRoot = Split-Path -Parent (Split-Path -Parent $detectedQtPrefix)
+$cmake = Find-CMake -QtRoot $qtRoot
+
+if ($qt.Kind -eq "MSVC") {
+    $buildPreset = "vs2022-x64-$($Configuration.ToLowerInvariant())"
+    $buildDirectory = Join-Path $repositoryRoot "build\vs2022-x64"
+    $executable = Join-Path $buildDirectory "$Configuration\jydRenderer.exe"
+    $ninja = $null
+    $mingwBinDirectory = $null
+} else {
+    $buildPreset = $null
+    $buildDirectory = Join-Path $repositoryRoot "build\package-mingw-x64"
+    $executable = Join-Path $buildDirectory "jydRenderer.exe"
+    $ninja = Find-Ninja -QtRoot $qtRoot
+    $mingwBinDirectory = Find-MinGwBinDirectory -QtRoot $qtRoot
+}
+
+Write-Host "Qt $qtVersion selected:"
+Write-Host "  Prefix:    $detectedQtPrefix"
+Write-Host "  Toolchain: $($qt.Kind)"
+
+$originalPath = $env:Path
+$additionalToolPaths = @($qtBinDirectory)
+if ($qt.Kind -eq "MinGW") {
+    $additionalToolPaths += $mingwBinDirectory
+    $additionalToolPaths += Split-Path -Parent $ninja
+}
+$env:Path = (($additionalToolPaths | Select-Object -Unique) -join ';') + ';' + $originalPath
 
 Push-Location $repositoryRoot
 try {
     if (-not $SkipBuild) {
-        $repairedSdlCache = Repair-BrokenSdlFetchContentCache `
-            -RepositoryRoot $repositoryRoot
-        $configureArguments = @(
-            "--preset", "vs2022-x64",
-            "-DCMAKE_PREFIX_PATH=$detectedQtPrefix"
-        )
-        if ($repairedSdlCache) {
-            # Remove diagnostic/offline overrides that would prevent
-            # FetchContent from repopulating the repaired source directory.
-            $configureArguments += "-UFETCHCONTENT_FULLY_DISCONNECTED"
-            $configureArguments += "-UFETCHCONTENT_SOURCE_DIR_SDL2"
+        if ($qt.Kind -eq "MSVC") {
+            $repairedSdlCache = Repair-BrokenSdlFetchContentCache `
+                -RepositoryRoot $repositoryRoot
+            $configureArguments = @(
+                "--preset", "vs2022-x64",
+                "-DCMAKE_PREFIX_PATH=$detectedQtPrefix"
+            )
+            if ($repairedSdlCache) {
+                # Remove diagnostic/offline overrides that would prevent
+                # FetchContent from repopulating the repaired source directory.
+                $configureArguments += "-UFETCHCONTENT_FULLY_DISCONNECTED"
+                $configureArguments += "-UFETCHCONTENT_SOURCE_DIR_SDL2"
+            }
+            Invoke-NativeCommand -FilePath $cmake -ArgumentList $configureArguments
+            Invoke-NativeCommand -FilePath $cmake -ArgumentList @(
+                "--build", "--preset", $buildPreset
+            )
+        } else {
+            $configureArguments = @(
+                "-S", $repositoryRoot,
+                "-B", $buildDirectory,
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=$Configuration",
+                "-DCMAKE_PREFIX_PATH=$detectedQtPrefix",
+                "-DCMAKE_MAKE_PROGRAM=$ninja",
+                "-DCMAKE_C_COMPILER=$(Join-Path $mingwBinDirectory 'gcc.exe')",
+                "-DCMAKE_CXX_COMPILER=$(Join-Path $mingwBinDirectory 'g++.exe')"
+            )
+            Invoke-NativeCommand -FilePath $cmake -ArgumentList $configureArguments
+            Invoke-NativeCommand -FilePath $cmake -ArgumentList @(
+                "--build", $buildDirectory
+            )
         }
-        Invoke-NativeCommand -FilePath "cmake" `
-            -ArgumentList $configureArguments
-        Invoke-NativeCommand -FilePath "cmake" -ArgumentList @(
-            "--build", "--preset", $buildPreset
-        )
     }
 
     if (-not (Test-Path -LiteralPath $executable -PathType Leaf)) {
@@ -269,7 +477,11 @@ try {
     Write-Host "> $windeployqt $($deployArguments -join ' ')"
     & $windeployqt @deployArguments
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "windeployqt failed; using the local DLL dependency fallback."
+        if ($qt.Kind -eq "MinGW") {
+            throw "windeployqt failed and could not deploy the MinGW runtime."
+        } else {
+            Write-Warning "windeployqt failed; using the local DLL dependency fallback."
+        }
     }
 
     # Some package-manager Qt distributions use suffixed DLL names and their
@@ -305,6 +517,7 @@ try {
     New-Item -ItemType Directory -Path $platformDestination -Force | Out-Null
     Copy-Item -LiteralPath $platformSource -Destination $platformDestination -Force
 
+    if ($qt.Kind -eq "MSVC") {
     $dumpBin = Find-DumpBin
     if ($null -eq $dumpBin) {
         throw "dumpbin.exe was not found; install the VS2022 C++ desktop workload."
@@ -321,6 +534,7 @@ try {
         -SearchDirectory $qtBinDirectory `
         -DestinationDirectory $stagingDirectory `
         -DumpBin $dumpBin
+    }
 
     Set-Content -LiteralPath (Join-Path $stagingDirectory "qt.conf") `
         -Value "[Paths]`r`nPlugins=." -Encoding Ascii
@@ -334,5 +548,6 @@ try {
     Write-Host "  Archive:   $zipPath"
 }
 finally {
+    $env:Path = $originalPath
     Pop-Location
 }
