@@ -403,6 +403,10 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
 {
     shader.mvp = camera.projectionMatrix() * camera.viewTransformation();
 	shader.vp = camera.viewTransformation();
+	shader.SpecularLightDirection = SpecularLightDirection();
+	shader.DiffuseLightDirection = DiffuseLightDirection();
+	shader.AmbientLightColor = AmbientLightColor();
+	shader.cameraPosition = camera.position_;
     const double halfW = static_cast<double>(framebuffer_.width()) * 0.5;
     const double halfH = static_cast<double>(framebuffer_.height()) * 0.5;
 
