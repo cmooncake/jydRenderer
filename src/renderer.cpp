@@ -399,7 +399,7 @@ void Renderer::drawModel(const Model& model)
     }
 }
 
-void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
+int Renderer::Pipeline(const Model& model, struct CommonShader& shader)
 {
     shader.mvp = camera.projectionMatrix() * camera.viewTransformation();
 	shader.vp = camera.viewTransformation();
@@ -409,6 +409,7 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
 	shader.cameraPosition = camera.position_;
     const double halfW = static_cast<double>(framebuffer_.width()) * 0.5;
     const double halfH = static_cast<double>(framebuffer_.height()) * 0.5;
+    int totalTriangles = 0;
 
     for (const auto& face : model.facet) {
         vec3 world[3] = {
@@ -510,8 +511,10 @@ void Renderer::Pipeline(const Model& model, struct CommonShader& shader)
                 x2, y2, ndc[2][2],
                 shader,
                 clippedVertices);
-        }
+            totalTriangles++;
+        }    
     }
+    return totalTriangles;
 }
 
 } // namespace jyd

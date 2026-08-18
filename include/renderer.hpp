@@ -101,7 +101,8 @@ public:
     void drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const CommonShader& shader, const Commonv2f (&vertices)[3]);
     void drawModel(const Model& model);
 
-	void Pipeline(const Model& model, struct CommonShader& shader);
+	int Pipeline(const Model& model, struct CommonShader& shader);
+
 
 private:
     Framebuffer& framebuffer_;

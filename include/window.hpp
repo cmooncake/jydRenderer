@@ -33,6 +33,7 @@ private:
     bool dragging_ = false;
     int lastMouseX_ = 0;
     int lastMouseY_ = 0;
+
 };
 
 } // namespace jyd

@@ -38,6 +38,12 @@ int runRenderer(const std::vector<RenderItem>& scene) {
 
     bool init = false;
 
+    //using Clock = std::chrono::steady_clock;
+    auto lastTime = std::chrono::steady_clock::now();
+    int frameCount = 0;
+    double fps = 0.0;
+    int totalTriangles = 0;
+
     while (true) {
         auto frame = window.pollEvents(renderer);
         if (!frame.running) break;
@@ -45,15 +51,27 @@ int runRenderer(const std::vector<RenderItem>& scene) {
             renderer.clear({ 20, 24, 33, 255 });
 
             jyd::CommonShader shader;
+            totalTriangles = 0;
             for (const RenderItem& item : scene) {
                 shader.texture = &item.texture;
-                renderer.Pipeline(item.model, shader);
+                totalTriangles += renderer.Pipeline(item.model, shader);               
             }
             window.present(framebuffer);
             init = true;
         }
-
+        ++frameCount;
+        auto now = std::chrono::steady_clock::now();
+        double elapsed = std::chrono::duration<double>(now - lastTime).count();
+        if (elapsed >= 1.0) {
+            fps = frameCount / elapsed;
+            frameCount = 0;
+            lastTime = now;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        std::cout << "\033[2J\033[H";
+        std::cout << "Triangles: " << totalTriangles
+            << "  FPS: " << static_cast<int>(fps) << std::endl;
+       
     }
     return 0;
 }
