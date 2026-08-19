@@ -9,6 +9,16 @@
 #include <cmath>
 
 namespace jyd {
+    enum RenderMod{
+        DepthMap = 0,
+        Filling = 1,
+		Nolighting = 2,
+		Lighting = 3,
+        Wireframe = 4
+    };
+
+	const int ModTypesCount = 5;
+
 	template<typename a2v, typename v2f>
     struct IShader {
         virtual v2f vertex(const a2v& a) const = 0;
@@ -101,7 +111,7 @@ public:
     void drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const CommonShader& shader, const Commonv2f (&vertices)[3]);
     void drawModel(const Model& model);
 
-	int Pipeline(const Model& model, struct CommonShader& shader);
+	int Pipeline(const Model& model, struct CommonShader& shader, RenderMod mod);
 
 
 private:

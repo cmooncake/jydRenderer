@@ -16,6 +16,8 @@
 #include <thread>
 #include <chrono>
 
+jyd::RenderMod mod = jyd::RenderMod::Lighting;
+
 namespace {
 
 struct RenderItem {
@@ -28,7 +30,7 @@ struct RenderItem {
         : model(modelPath), texture(texturePath) {}
 };
 
-int runRenderer(const std::vector<RenderItem>& scene) {
+int runRenderer(const std::vector<RenderItem>& scene, jyd::RenderMod mod) {
     constexpr int kWidth = 1200;
     constexpr int kHeight = 900;
 
@@ -45,7 +47,7 @@ int runRenderer(const std::vector<RenderItem>& scene) {
     int totalTriangles = 0;
 
     while (true) {
-        auto frame = window.pollEvents(renderer);
+        auto frame = window.pollEvents(renderer, mod);
         if (!frame.running) break;
         if (!init || frame.needsRedraw) {
             renderer.clear({ 20, 24, 33, 255 });
@@ -54,7 +56,7 @@ int runRenderer(const std::vector<RenderItem>& scene) {
             totalTriangles = 0;
             for (const RenderItem& item : scene) {
                 shader.texture = &item.texture;
-                totalTriangles += renderer.Pipeline(item.model, shader);               
+                totalTriangles += renderer.Pipeline(item.model, shader, mod);
             }
             window.present(framebuffer);
             init = true;
@@ -67,7 +69,7 @@ int runRenderer(const std::vector<RenderItem>& scene) {
             frameCount = 0;
             lastTime = now;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        //std::this_thread::sleep_for(std::chrono::milliseconds(16));
         std::cout << "\033[2J\033[H";
         std::cout << "Triangles: " << totalTriangles
             << "  FPS: " << static_cast<int>(fps) << std::endl;
@@ -80,7 +82,7 @@ int runRenderer(const std::vector<RenderItem>& scene) {
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
-
+    
     try {
         std::vector<RenderItem> scene;
         while (true) {
@@ -117,7 +119,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Loaded " << scene.size()
                   << " model/texture pair(s).\n";
-        return runRenderer(scene);
+        return runRenderer(scene, mod);
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << '\n';
         QMessageBox::critical(

@@ -74,7 +74,7 @@ Window::~Window() {
 #endif
 }
 
-struct PollResult Window::pollEvents(Renderer& renderer) {
+struct PollResult Window::pollEvents(Renderer& renderer, jyd::RenderMod& mod) {
 #if defined(JYD_USE_SDL2)
     SDL_Event event;
 	struct PollResult res(true, false);
@@ -92,6 +92,8 @@ struct PollResult Window::pollEvents(Renderer& renderer) {
                 case SDL_SCANCODE_D: camera.strafeRight(0.1); res.needsRedraw = true; break;
                 case SDL_SCANCODE_Q: camera.moveUp(0.1); res.needsRedraw = true; break;
                 case SDL_SCANCODE_E: camera.moveDown(0.1); res.needsRedraw = true; break;
+
+				case SDL_SCANCODE_M: mod = static_cast<jyd::RenderMod>((mod+1)%ModTypesCount); res.needsRedraw = true; break;
                 default: break;
                 }
                 break;

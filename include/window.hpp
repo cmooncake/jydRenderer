@@ -21,7 +21,7 @@ public:
     Window(const Window&) = delete;
     Window& operator=(const Window&) = delete;
 
-    struct PollResult pollEvents(Renderer& renderer);
+    struct PollResult pollEvents(Renderer& renderer, jyd::RenderMod& mod);
     void present(const Framebuffer& framebuffer);
 
 private:

@@ -399,7 +399,7 @@ void Renderer::drawModel(const Model& model)
     }
 }
 
-int Renderer::Pipeline(const Model& model, struct CommonShader& shader)
+int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMod mod)
 {
     shader.mvp = camera.projectionMatrix() * camera.viewTransformation();
 	shader.vp = camera.viewTransformation();
@@ -505,12 +505,53 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader)
             //    x1, y1, ndc[1][2],
             //    x2, y2, ndc[2][2],
             //    { 211, 211, 211, 255 });
-            drawTriangle_byShader(
-                x0, y0, ndc[0][2],
-                x1, y1, ndc[1][2],
-                x2, y2, ndc[2][2],
-                shader,
-                clippedVertices);
+            switch (mod)
+            {
+                case RenderMod::DepthMap:
+                {
+                    const double depthShade =
+                        std::clamp(0.5 * (1.0 - ndc[0][2]), 0.0, 1.0);
+                    const Color depthColor = {
+                        static_cast<std::uint8_t>(depthShade * 255),
+                        static_cast<std::uint8_t>(depthShade * 255),
+                        static_cast<std::uint8_t>(depthShade * 255),
+                        255
+                    };
+                    drawTriangle_barycentric(
+                        x0, y0, ndc[0][2],
+                        x1, y1, ndc[1][2],
+                        x2, y2, ndc[2][2],
+                        depthColor);
+				}
+				case RenderMod::Filling:
+                    drawTriangle_barycentric(
+                        x0, y0, ndc[0][2],
+                        x1, y1, ndc[1][2],
+                        x2, y2, ndc[2][2],
+                        { 211, 211, 211, 255 });
+                    break;
+                case RenderMod::Nolighting:break;
+                case RenderMod::Lighting:
+                    drawTriangle_byShader(
+                        x0, y0, ndc[0][2],
+                        x1, y1, ndc[1][2],
+                        x2, y2, ndc[2][2],
+                        shader,
+                        clippedVertices); break;
+				case RenderMod::Wireframe:
+					drawLine(x0, y0, x1, y1, { 255, 255, 255, 255 });
+                    drawLine(x1, y1, x2, y2, { 255, 255, 255, 255 });
+                    drawLine(x2, y2, x0, y0, { 255, 255, 255, 255 });
+					break;
+            default:
+                drawTriangle_byShader(
+                    x0, y0, ndc[0][2],
+                    x1, y1, ndc[1][2],
+                    x2, y2, ndc[2][2],
+                    shader,
+                    clippedVertices);              
+                break;
+            }
             totalTriangles++;
         }    
     }
