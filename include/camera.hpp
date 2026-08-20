@@ -36,6 +36,19 @@ struct Camera {
         l_ = -r_;
     }
 
+    void zoom(float wheelDelta) {
+        constexpr float zoomSensitivity = 0.05f;
+        constexpr float minFov = 0.261799f; // 15бу
+        constexpr float maxFov = 1.570796f; // 90бу
+
+        fovY_ = std::clamp(
+            fovY_ - wheelDelta * zoomSensitivity,
+            minFov,
+            maxFov);
+
+        updateFrustum();
+    }
+
     vec3 right() const {
         return normalize(
             cross(lookAtDirection_, vec3(0.0f, 1.0f, 0.0f))

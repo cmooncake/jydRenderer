@@ -99,6 +99,12 @@ struct PollResult Window::pollEvents(Renderer& renderer, jyd::RenderMod& mod) {
                 break;
             }
 
+            case SDL_MOUSEWHEEL:
+                    renderer.getCamera().zoom(event.wheel.y);
+                    res.needsRedraw = true;
+                
+				break;
+
             case SDL_MOUSEBUTTONDOWN:
                 if (event.button.button == SDL_BUTTON_RIGHT) {
                     dragging_ = true;
