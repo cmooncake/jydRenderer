@@ -7,22 +7,22 @@
 
 template<int n>
 struct vec {
-    double data[n] = {0};
+    float data[n] = {0};
 
     vec() = default;
 
-    explicit vec(double v) {
+    explicit vec(float v) {
         for (int i = 0; i < n; ++i) {
             data[i] = v;
         }
     }
 
-    double& operator[](int i) {
+    float& operator[](int i) {
         assert(i >= 0 && i < n);
         return data[i];
     }
 
-    double operator[](int i) const {
+    float operator[](int i) const {
         assert(i >= 0 && i < n);
         return data[i];
     }
@@ -39,20 +39,20 @@ struct vec<4>;
 
 template<>
 struct vec<2> {
-    double x = 0;
-    double y = 0;
+    float x = 0;
+    float y = 0;
 
     vec() = default;
-    vec(double x_, double y_) : x(x_), y(y_) {}
-    explicit vec(double v) : x(v), y(v) {}
+    vec(float x_, float y_) : x(x_), y(y_) {}
+    explicit vec(float v) : x(v), y(v) {}
     explicit vec(const vec<3>& v);
 
-    double& operator[](int i) {
+    float& operator[](int i) {
         assert(i >= 0 && i < 2);
         return i ? y : x;
     }
 
-    double operator[](int i) const {
+    float operator[](int i) const {
         assert(i >= 0 && i < 2);
         return i ? y : x;
     }
@@ -60,22 +60,22 @@ struct vec<2> {
 
 template<>
 struct vec<3> {
-    double x = 0;
-    double y = 0;
-    double z = 0;
+    float x = 0;
+    float y = 0;
+    float z = 0;
 
     vec() = default;
-    vec(double x_, double y_, double z_) : x(x_), y(y_), z(z_) {}
-    explicit vec(double v) : x(v), y(v), z(v) {}
-    explicit vec(const vec<2>& v, double zVal = 0) : x(v.x), y(v.y), z(zVal) {}
+    vec(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
+    explicit vec(float v) : x(v), y(v), z(v) {}
+    explicit vec(const vec<2>& v, float zVal = 0) : x(v.x), y(v.y), z(zVal) {}
     explicit vec(const vec<4>& v);
 
-    double& operator[](int i) {
+    float& operator[](int i) {
         assert(i >= 0 && i < 3);
         return i ? (1 == i ? y : z) : x;
     }
 
-    double operator[](int i) const {
+    float operator[](int i) const {
         assert(i >= 0 && i < 3);
         return i ? (1 == i ? y : z) : x;
     }
@@ -83,28 +83,28 @@ struct vec<3> {
 
 template<>
 struct vec<4> {
-    double x = 0;
-    double y = 0;
-    double z = 0;
-    double w = 0;
+    float x = 0;
+    float y = 0;
+    float z = 0;
+    float w = 0;
 
     vec() = default;
-    vec(double x_, double y_, double z_, double wVal)
+    vec(float x_, float y_, float z_, float wVal)
         : x(x_), y(y_), z(z_) {
         this->w = wVal;
     }
-    explicit vec(double v) : x(v), y(v), z(v) {
+    explicit vec(float v) : x(v), y(v), z(v) {
         this->w = v;
     }
-    explicit vec(const vec<3>& v, double wVal = 1) : x(v.x), y(v.y), z(v.z) {
+    explicit vec(const vec<3>& v, float wVal = 1) : x(v.x), y(v.y), z(v.z) {
         this->w = wVal;
     }
-    explicit vec(const vec<2>& v, double zVal = 0, double wVal = 1)
+    explicit vec(const vec<2>& v, float zVal = 0, float wVal = 1)
         : x(v.x), y(v.y), z(zVal) {
         this->w = wVal;
     }
 
-    double& operator[](int i) {
+    float& operator[](int i) {
         assert(i >= 0 && i < 4);
         switch (i) {
         case 0: return x;
@@ -114,7 +114,7 @@ struct vec<4> {
         }
     }
 
-    double operator[](int i) const {
+    float operator[](int i) const {
         assert(i >= 0 && i < 4);
         switch (i) {
         case 0: return x;
@@ -150,7 +150,7 @@ inline vec<n> operator-(vec<n> lhs, const vec<n>& rhs) {
 }
 
 template<int n>
-inline vec<n> operator*(vec<n> v, double s) {
+inline vec<n> operator*(vec<n> v, float s) {
     for (int i = 0; i < n; ++i) {
         v[i] *= s;
     }
@@ -158,12 +158,12 @@ inline vec<n> operator*(vec<n> v, double s) {
 }
 
 template<int n>
-inline vec<n> operator*(double s, vec<n> v) {
+inline vec<n> operator*(float s, vec<n> v) {
     return v * s;
 }
 
 template<int n>
-inline vec<n> operator/(vec<n> v, double s) {
+inline vec<n> operator/(vec<n> v, float s) {
     for (int i = 0; i < n; ++i) {
         v[i] /= s;
     }
@@ -172,7 +172,7 @@ inline vec<n> operator/(vec<n> v, double s) {
 
 template<int n>
 inline vec<n> operator-(const vec<n>& v) {
-    return v * -1.0;
+    return v * -1.0f;
 }
 
 template<int n>
@@ -188,20 +188,20 @@ inline vec<n>& operator-=(vec<n>& lhs, const vec<n>& rhs) {
 }
 
 template<int n>
-inline vec<n>& operator*=(vec<n>& v, double s) {
+inline vec<n>& operator*=(vec<n>& v, float s) {
     v = v * s;
     return v;
 }
 
 template<int n>
-inline vec<n>& operator/=(vec<n>& v, double s) {
+inline vec<n>& operator/=(vec<n>& v, float s) {
     v = v / s;
     return v;
 }
 
 template<int n>
-inline double operator*(const vec<n>& a, const vec<n>& b) {
-    double ret = 0;
+inline float operator*(const vec<n>& a, const vec<n>& b) {
+    float ret = 0;
     for (int i = 0; i < n; ++i) {
         ret += a[i] * b[i];
     }
@@ -209,7 +209,7 @@ inline double operator*(const vec<n>& a, const vec<n>& b) {
 }
 
 template<int n>
-inline double norm(const vec<n>& v) {
+inline float norm(const vec<n>& v) {
     return std::sqrt(v * v);
 }
 
@@ -245,7 +245,7 @@ struct mat {
     vec<m> rows[n] = {};
 
     mat() = default;
-    mat(const double (&matrix)[n][m])
+    mat(const float (&matrix)[n][m])
     {
         for (int i = 0; i < n; ++i) {
             for (int j = 0; j < m; ++j) {
@@ -274,7 +274,7 @@ inline mat<n, n> identity() {
     mat<n, n> r;
     for (int i = 0; i < n; ++i) {
         for (int j = 0; j < n; ++j) {
-            r[i][j] = (i == j) ? 1.0 : 0.0;
+            r[i][j] = (i == j) ? 1.0f : 0.0f;
         }
     }
     return r;
@@ -297,7 +297,7 @@ inline mat<n, m> operator-(mat<n, m> lhs, const mat<n, m>& rhs) {
 }
 
 template<int n, int m>
-inline mat<n, m> operator*(mat<n, m> m_, double s) {
+inline mat<n, m> operator*(mat<n, m> m_, float s) {
     for (int i = 0; i < n; ++i) {
         m_[i] = m_[i] * s;
     }
@@ -305,13 +305,13 @@ inline mat<n, m> operator*(mat<n, m> m_, double s) {
 }
 
 template<int n, int m>
-inline mat<n, m> operator*(double s, mat<n, m> m_) {
+inline mat<n, m> operator*(float s, mat<n, m> m_) {
     return m_ * s;
 }
 
 template<int n, int m>
-inline mat<n, m> operator/(mat<n, m> m_, double s) {
-    return m_ * (1.0 / s);
+inline mat<n, m> operator/(mat<n, m> m_, float s) {
+    return m_ * (1.0f / s);
 }
 
 template<int n, int m>
@@ -327,7 +327,7 @@ inline mat<n, m>& operator-=(mat<n, m>& lhs, const mat<n, m>& rhs) {
 }
 
 template<int n, int m>
-inline mat<n, m>& operator*=(mat<n, m>& m_, double s) {
+inline mat<n, m>& operator*=(mat<n, m>& m_, float s) {
     m_ = m_ * s;
     return m_;
 }
@@ -377,8 +377,8 @@ inline mat<m, n> transpose(const mat<n, m>& m_) {
 }
 
 template<int n>
-inline double determinant(mat<n, n> a) {
-    double det = 1.0;
+inline float determinant(mat<n, n> a) {
+    float det = 1.0f;
 
     for (int col = 0; col < n; ++col) {
         int pivot = col;
@@ -388,8 +388,8 @@ inline double determinant(mat<n, n> a) {
             }
         }
 
-        if (std::abs(a[pivot][col]) < 1e-12) {
-            return 0.0;
+        if (std::abs(a[pivot][col]) < 1e-8f) {
+            return 0.0f;
         }
 
         if (pivot != col) {
@@ -398,14 +398,14 @@ inline double determinant(mat<n, n> a) {
         }
 
         det *= a[col][col];
-        const double invPivot = 1.0 / a[col][col];
+        const float invPivot = 1.0f / a[col][col];
 
         for (int j = col + 1; j < n; ++j) {
             a[col][j] *= invPivot;
         }
 
         for (int row = col + 1; row < n; ++row) {
-            const double factor = a[row][col];
+            const float factor = a[row][col];
             for (int j = col + 1; j < n; ++j) {
                 a[row][j] -= factor * a[col][j];
             }
@@ -428,7 +428,7 @@ inline mat<n, n> inverse(const mat<n, n>& m_) {
             }
         }
 
-        if (std::abs(a[pivot][col]) < 1e-12) {
+        if (std::abs(a[pivot][col]) < 1e-8f) {
             return mat<n, n>{};
         }
 
@@ -437,7 +437,7 @@ inline mat<n, n> inverse(const mat<n, n>& m_) {
             std::swap(inv.rows[col], inv.rows[pivot]);
         }
 
-        const double invPivot = 1.0 / a[col][col];
+        const float invPivot = 1.0f / a[col][col];
         for (int j = 0; j < n; ++j) {
             a[col][j] *= invPivot;
             inv[col][j] *= invPivot;
@@ -447,7 +447,7 @@ inline mat<n, n> inverse(const mat<n, n>& m_) {
             if (row == col) {
                 continue;
             }
-            const double factor = a[row][col];
+            const float factor = a[row][col];
             for (int j = 0; j < n; ++j) {
                 a[row][j] -= factor * a[col][j];
                 inv[row][j] -= factor * inv[col][j];
@@ -470,11 +470,11 @@ inline std::ostream& operator<<(std::ostream& out, const mat<n, m>& m_) {
 }
 
 inline vec4 transform_point(const mat4& m, const vec3& v) {
-    return m * vec4(v, 1.0);
+    return m * vec4(v, 1.0f);
 }
 
 inline vec3 transform_direction(const mat4& m, const vec3& v) {
-    const vec4 r = m * vec4(v, 0.0);
+    const vec4 r = m * vec4(v, 0.0f);
     return vec3(r.x, r.y, r.z);
 }
 

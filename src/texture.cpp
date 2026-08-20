@@ -94,8 +94,8 @@ namespace jyd {
     }
 
     Color Texture::sampleNearest(const vec2& uv) const {
-        const double u = uv[0] - std::floor(uv[0]);
-        const double v = uv[1] - std::floor(uv[1]);
+        const float u = uv[0] - std::floor(uv[0]);
+        const float v = uv[1] - std::floor(uv[1]);
 
         const int x = std::clamp(
             static_cast<int>(u * width_),
@@ -104,7 +104,7 @@ namespace jyd {
 
         // Image rows start at the top; OBJ texture V coordinates start at the bottom.
         const int y = std::clamp(
-            static_cast<int>((1.0 - v) * height_),
+            static_cast<int>((1.0f - v) * height_),
             0,
             height_ - 1);
 

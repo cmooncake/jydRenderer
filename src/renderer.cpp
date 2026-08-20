@@ -17,11 +17,17 @@ int clampInt(int value, int minValue, int maxValue) {
     return std::max(minValue, std::min(value, maxValue));
 }
 
-double area(double ax, double ay, double bx, double by, double cx, double cy){
-    return .5*(ax*(by-cy)+bx*(cy-ay)+cx*(ay-by));
+float area(int ax, int ay, int bx, int by, int cx, int cy) {
+    const float fax = static_cast<float>(ax);
+    const float fay = static_cast<float>(ay);
+    const float fbx = static_cast<float>(bx);
+    const float fby = static_cast<float>(by);
+    const float fcx = static_cast<float>(cx);
+    const float fcy = static_cast<float>(cy);
+    return 0.5f * (fax * (fby - fcy) + fbx * (fcy - fay) + fcx * (fay - fby));
 }
 
-double clipDistance(const vec4& vertex, int plane) {
+float clipDistance(const vec4& vertex, int plane) {
     switch (plane) {
     case 0: return vertex[0] + vertex[3];
     case 1: return vertex[3] - vertex[0];
@@ -29,7 +35,7 @@ double clipDistance(const vec4& vertex, int plane) {
     case 3: return vertex[3] - vertex[1];
     case 4: return vertex[2] + vertex[3];
     case 5: return vertex[3] - vertex[2];
-    default: return -1.0;
+    default: return -1.0f;
     }
 }
 
@@ -40,15 +46,15 @@ std::vector<vec4> clipAgainstPlane(const std::vector<vec4>& polygon, int plane) 
     }
 
     vec4 previous = polygon.back();
-    double previousDistance = clipDistance(previous, plane);
-    bool previousInside = previousDistance >= 0.0;
+    float previousDistance = clipDistance(previous, plane);
+    bool previousInside = previousDistance >= 0.0f;
 
     for (const vec4& current : polygon) {
-        const double currentDistance = clipDistance(current, plane);
-        const bool currentInside = currentDistance >= 0.0;
+        const float currentDistance = clipDistance(current, plane);
+        const bool currentInside = currentDistance >= 0.0f;
 
         if (currentInside != previousInside) {
-            const double t = previousDistance /
+            const float t = previousDistance /
                 (previousDistance - currentDistance);
             output.push_back(previous + (current - previous) * t);
         }
@@ -70,14 +76,14 @@ std::vector<vec4> clipToViewFrustum(std::vector<vec4> polygon) {
     return polygon;
 }
 
-double clipDistance(const Commonv2f& vertex, int plane) {
+float clipDistance(const Commonv2f& vertex, int plane) {
     return clipDistance(vertex.position, plane);
 }
 
 Commonv2f interpolateClipVertex(
     const Commonv2f& from,
     const Commonv2f& to,
-    double t) {
+    float t) {
     return {
         from.position + (to.position - from.position) * t,
         from.normal + (to.normal - from.normal) * t,
@@ -94,15 +100,15 @@ std::vector<Commonv2f> clipAgainstPlane(
     }
 
     Commonv2f previous = polygon.back();
-    double previousDistance = clipDistance(previous, plane);
-    bool previousInside = previousDistance >= 0.0;
+    float previousDistance = clipDistance(previous, plane);
+    bool previousInside = previousDistance >= 0.0f;
 
     for (const Commonv2f& current : polygon) {
-        const double currentDistance = clipDistance(current, plane);
-        const bool currentInside = currentDistance >= 0.0;
+        const float currentDistance = clipDistance(current, plane);
+        const bool currentInside = currentDistance >= 0.0f;
 
         if (currentInside != previousInside) {
-            const double t = previousDistance /
+            const float t = previousDistance /
                 (previousDistance - currentDistance);
             output.push_back(interpolateClipVertex(previous, current, t));
         }
@@ -130,16 +136,16 @@ std::vector<Commonv2f> clipToViewFrustum(
 Renderer::Renderer(Framebuffer& framebuffer)
     : framebuffer_(framebuffer)
     , camera(framebuffer_.width(), framebuffer_.height()) {
-    zbuffer_.resize(framebuffer_.width() * framebuffer_.height(), std::numeric_limits<double>::infinity());
+    zbuffer_.resize(framebuffer_.width() * framebuffer_.height(), std::numeric_limits<float>::infinity());
 }
 
 void Renderer::clear(const Color& color)
 {
     framebuffer_.clear(color);
-    zbuffer_.assign(zbuffer_.size(), std::numeric_limits<double>::infinity());
+    zbuffer_.assign(zbuffer_.size(), std::numeric_limits<float>::infinity());
 }
 
-double Renderer::getZbuffer(int x, int y)
+float Renderer::getZbuffer(int x, int y)
 {
     if (x < 0 || y < 0 || x >= framebuffer_.width() || y >= framebuffer_.height()) {
         return 0;
@@ -148,7 +154,7 @@ double Renderer::getZbuffer(int x, int y)
     return zbuffer_[index];
 }
 
-void Renderer::setZbuffer(int x, int y, double zbuf)
+void Renderer::setZbuffer(int x, int y, float zbuf)
 {
     if (x < 0 || y < 0 || x >= framebuffer_.width() || y >= framebuffer_.height()) {
         return;
@@ -231,7 +237,7 @@ void Renderer::drawTriangle(int x0, int y0, int x1, int y1, int x2, int y2, cons
 }
 
 
-void Renderer::drawTriangle_barycentric(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const Color& color)
+void Renderer::drawTriangle_barycentric(int x0, int y0, float z0, int x1, int y1, float z1, int x2, int y2, float z2, const Color& color)
 {
     int lb = std::max(0, std::min({ x0, x1, x2 }));
     int rb = std::min(framebuffer_.width() - 1, std::max({ x0, x1, x2 }));
@@ -240,25 +246,25 @@ void Renderer::drawTriangle_barycentric(int x0, int y0, double z0, int x1, int y
 
     if (lb > rb || bb > tb)
         return;
-    double abc = area(x0, y0, x1, y1, x2, y2);
-    if (abc < 1e-10) return;
+    float abc = area(x0, y0, x1, y1, x2, y2);
+    if (abc < 1e-6f) return;
     for (int y = bb; y <= tb; y++)
     {
         for (int x = lb; x <= rb; x++)
         {
-            double alpha = area(x, y, x1, y1, x2, y2)/ abc;
-            double beta = area(x, y, x2, y2, x0, y0)/ abc;
-            double gamma = area(x, y, x0, y0, x1, y1)/ abc;
+            float alpha = area(x, y, x1, y1, x2, y2)/ abc;
+            float beta = area(x, y, x2, y2, x0, y0)/ abc;
+            float gamma = area(x, y, x0, y0, x1, y1)/ abc;
             if (alpha < 0 || beta < 0 || gamma < 0)
                 continue;
-            double zbuf = alpha * z0 + beta * z1 + gamma *z2;
-            double z_current = getZbuffer(x, y);
+            float zbuf = alpha * z0 + beta * z1 + gamma *z2;
+            float z_current = getZbuffer(x, y);
             if (zbuf < z_current)
             {
                 setZbuffer(x, y, zbuf);
                 //framebuffer_.setPixel(x, y, { static_cast < std::uint8_t>(color.r*alpha),  static_cast < std::uint8_t>(color.g *beta) ,  static_cast < std::uint8_t>(color.b*gamma), color.a});
-                const double depthShade =
-                    std::clamp(0.5 * (1.0 - zbuf), 0.0, 1.0);
+                const float depthShade =
+                    std::clamp(0.5f * (1.0f - zbuf), 0.0f, 1.0f);
                 framebuffer_.setPixel(x, y, {
                             static_cast<std::uint8_t>(depthShade * color.r),
                             static_cast<std::uint8_t>(depthShade * color.g),
@@ -271,7 +277,7 @@ void Renderer::drawTriangle_barycentric(int x0, int y0, double z0, int x1, int y
 }
 
 
-void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, double z1, int x2, int y2, double z2, const CommonShader& shader, const Commonv2f (&vertices)[3])
+void Renderer::drawTriangle_byShader(int x0, int y0, float z0, int x1, int y1, float z1, int x2, int y2, float z2, const CommonShader& shader, const Commonv2f (&vertices)[3])
 {
     int lb = std::max(0, std::min({ x0, x1, x2 }));
     int rb = std::min(framebuffer_.width() - 1, std::max({ x0, x1, x2 }));
@@ -280,27 +286,27 @@ void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, 
 
     if (lb > rb || bb > tb)
         return;
-    double abc = area(x0, y0, x1, y1, x2, y2);
-    if (std::abs(abc) < 1e-10) return;
+    float abc = area(x0, y0, x1, y1, x2, y2);
+    if (std::abs(abc) < 1e-6f) return;
     for (int y = bb; y <= tb; y++)
     {
         for (int x = lb; x <= rb; x++)
         {
-            double alpha = area(x, y, x1, y1, x2, y2) / abc;
-            double beta = area(x, y, x2, y2, x0, y0) / abc;
-            double gamma = area(x, y, x0, y0, x1, y1) / abc;
+            float alpha = area(x, y, x1, y1, x2, y2) / abc;
+            float beta = area(x, y, x2, y2, x0, y0) / abc;
+            float gamma = area(x, y, x0, y0, x1, y1) / abc;
             if (alpha < 0 || beta < 0 || gamma < 0)
                 continue;
-            double zbuf = alpha * z0 + beta * z1 + gamma * z2;
-            double z_current = getZbuffer(x, y);
+            float zbuf = alpha * z0 + beta * z1 + gamma * z2;
+            float z_current = getZbuffer(x, y);
             if (zbuf < z_current)
             {
-                const double correctedAlpha = alpha / vertices[0].position[3];
-                const double correctedBeta = beta / vertices[1].position[3];
-                const double correctedGamma = gamma / vertices[2].position[3];
-                const double denominator =
+                const float correctedAlpha = alpha / vertices[0].position[3];
+                const float correctedBeta = beta / vertices[1].position[3];
+                const float correctedGamma = gamma / vertices[2].position[3];
+                const float denominator =
                     correctedAlpha + correctedBeta + correctedGamma;
-                if (std::abs(denominator) < 1e-12) {
+                if (std::abs(denominator) < 1e-8f) {
                     continue;
                 }
 
@@ -336,8 +342,8 @@ void Renderer::drawTriangle_byShader(int x0, int y0, double z0, int x1, int y1, 
 void Renderer::drawModel(const Model& model)
 {
     const mat4 mvp = camera.projectionMatrix() * camera.viewTransformation();
-    const double halfW = static_cast<double>(framebuffer_.width()) * 0.5;
-    const double halfH = static_cast<double>(framebuffer_.height()) * 0.5;
+    const float halfW = static_cast<float>(framebuffer_.width()) * 0.5f;
+    const float halfH = static_cast<float>(framebuffer_.height()) * 0.5f;
 
     for (const auto& face : model.facet) {
         vec3 world[3] = {
@@ -349,7 +355,7 @@ void Renderer::drawModel(const Model& model)
         std::vector<vec4> polygon;
         polygon.reserve(3);
         for (int i = 0; i < 3; ++i) {
-            polygon.push_back(mvp * vec4(world[i], 1.0));
+            polygon.push_back(mvp * vec4(world[i], 1.0f));
         }
 
         polygon = clipToViewFrustum(std::move(polygon));
@@ -366,7 +372,7 @@ void Renderer::drawModel(const Model& model)
 
             for (int i = 0; i < 3; ++i) {
                 if (!std::isfinite(clip[i][3]) ||
-                    std::abs(clip[i][3]) < 1e-12) {
+                    std::abs(clip[i][3]) < 1e-8f) {
                     valid = false;
                     break;
                 }
@@ -383,12 +389,12 @@ void Renderer::drawModel(const Model& model)
                 continue;
             }
 
-            const int x0 = static_cast<int>((ndc[0][0] + 1.0) * halfW);
-            const int y0 = static_cast<int>((1.0 - ndc[0][1]) * halfH);
-            const int x1 = static_cast<int>((ndc[1][0] + 1.0) * halfW);
-            const int y1 = static_cast<int>((1.0 - ndc[1][1]) * halfH);
-            const int x2 = static_cast<int>((ndc[2][0] + 1.0) * halfW);
-            const int y2 = static_cast<int>((1.0 - ndc[2][1]) * halfH);
+            const int x0 = static_cast<int>((ndc[0][0] + 1.0f) * halfW);
+            const int y0 = static_cast<int>((1.0f - ndc[0][1]) * halfH);
+            const int x1 = static_cast<int>((ndc[1][0] + 1.0f) * halfW);
+            const int y1 = static_cast<int>((1.0f - ndc[1][1]) * halfH);
+            const int x2 = static_cast<int>((ndc[2][0] + 1.0f) * halfW);
+            const int y2 = static_cast<int>((1.0f - ndc[2][1]) * halfH);
 
             drawTriangle_barycentric(
                 x0, y0, ndc[0][2],
@@ -407,8 +413,8 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
 	shader.DiffuseLightDirection = DiffuseLightDirection();
 	shader.AmbientLightColor = AmbientLightColor();
 	shader.cameraPosition = camera.position_;
-    const double halfW = static_cast<double>(framebuffer_.width()) * 0.5;
-    const double halfH = static_cast<double>(framebuffer_.height()) * 0.5;
+    const float halfW = static_cast<float>(framebuffer_.width()) * 0.5f;
+    const float halfH = static_cast<float>(framebuffer_.height()) * 0.5f;
     int totalTriangles = 0;
 
     for (const auto& face : model.facet) {
@@ -419,8 +425,8 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
         };
 
         vec3 faceNormal = cross(world[1] - world[0], world[2] - world[0]);
-        const double faceNormalLength = norm(faceNormal);
-        if (faceNormalLength < 1e-12) {
+        const float faceNormalLength = norm(faceNormal);
+        if (faceNormalLength < 1e-8f) {
             continue;
         }
         faceNormal /= faceNormalLength;
@@ -451,7 +457,7 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
                     model.vtexcoords[texcoordIndex][1]);
             }
             else {
-                texcoords[i] = vec2(0.0);
+                texcoords[i] = vec2(0.0f);
             }
         }
 
@@ -477,7 +483,7 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
             for (int i = 0; i < 3; ++i) {
                 const vec4& clipPosition = clippedVertices[i].position;
                 if (!std::isfinite(clipPosition[3]) ||
-                    std::abs(clipPosition[3]) < 1e-12) {
+                    std::abs(clipPosition[3]) < 1e-8f) {
                     valid = false;
                     break;
                 }
@@ -493,12 +499,12 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
             if (!valid) {
                 continue;
             }
-            const int x0 = static_cast<int>((ndc[0][0] + 1.0) * halfW);
-            const int y0 = static_cast<int>((1.0 - ndc[0][1]) * halfH);
-            const int x1 = static_cast<int>((ndc[1][0] + 1.0) * halfW);
-            const int y1 = static_cast<int>((1.0 - ndc[1][1]) * halfH);
-            const int x2 = static_cast<int>((ndc[2][0] + 1.0) * halfW);
-            const int y2 = static_cast<int>((1.0 - ndc[2][1]) * halfH);
+            const int x0 = static_cast<int>((ndc[0][0] + 1.0f) * halfW);
+            const int y0 = static_cast<int>((1.0f - ndc[0][1]) * halfH);
+            const int x1 = static_cast<int>((ndc[1][0] + 1.0f) * halfW);
+            const int y1 = static_cast<int>((1.0f - ndc[1][1]) * halfH);
+            const int x2 = static_cast<int>((ndc[2][0] + 1.0f) * halfW);
+            const int y2 = static_cast<int>((1.0f - ndc[2][1]) * halfH);
 
             //drawTriangle_barycentric(
             //    x0, y0, ndc[0][2],
@@ -509,8 +515,8 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
             {
                 case RenderMod::DepthMap:
                 {
-                    const double depthShade =
-                        std::clamp(0.5 * (1.0 - ndc[0][2]), 0.0, 1.0);
+                    const float depthShade =
+                        std::clamp(0.5f * (1.0f - ndc[0][2]), 0.0f, 1.0f);
                     const Color depthColor = {
                         static_cast<std::uint8_t>(depthShade * 255),
                         static_cast<std::uint8_t>(depthShade * 255),

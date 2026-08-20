@@ -6,31 +6,31 @@
 namespace jyd {
 
 struct Camera {
-    vec3 position_{0.0, 0.0, 0.0};
-    vec3 lookAtDirection_{0.0, 0.0, -1.0};
-    vec3 upDirection_{0.0, 1.0, 0.0};
+    vec3 position_{0.0f, 0.0f, 0.0f};
+    vec3 lookAtDirection_{0.0f, 0.0f, -1.0f};
+    vec3 upDirection_{0.0f, 1.0f, 0.0f};
 
-    double l_ = -1.0;
-    double r_ = 1.0;
-    double b_ = -1.0;
-    double t_ = 1.0;
-    double n_ = 1.0;
-    double f_ = 100.0;
+    float l_ = -1.0f;
+    float r_ = 1.0f;
+    float b_ = -1.0f;
+    float t_ = 1.0f;
+    float n_ = 1.0f;
+    float f_ = 100.0f;
 
-    double fovY_ = 1.0471975511965976; // 60 deg
-    double aspect_ratio_ = 1.0;
+    float fovY_ = 1.0471976f; // 60 deg
+    float aspect_ratio_ = 1.0f;
 
-    double yaw_ = 0.0;
-    double pitch_ = 0.0;
+    float yaw_ = 0.0f;
+    float pitch_ = 0.0f;
 
-    Camera(int width, int height, double fovYRad = 1.0471975511965976) {
-        aspect_ratio_ = static_cast<double>(width) / static_cast<double>(height);
+    Camera(int width, int height, float fovYRad = 1.0471976f) {
+        aspect_ratio_ = static_cast<float>(width) / static_cast<float>(height);
         fovY_ = fovYRad;
         updateFrustum();
     }
 
     void updateFrustum() {
-        t_ = n_ * std::tan(fovY_ / 2.0);
+        t_ = n_ * std::tan(fovY_ / 2.0f);
         b_ = -t_;
         r_ = t_ * aspect_ratio_;
         l_ = -r_;
@@ -38,13 +38,13 @@ struct Camera {
 
     vec3 right() const {
         return normalize(
-            cross(lookAtDirection_, vec3(0.0, 1.0, 0.0))
+            cross(lookAtDirection_, vec3(0.0f, 1.0f, 0.0f))
         );
     }
 
-    void rotate(double deltaX, double deltaY) {
-        constexpr double sensitivity = 0.005;
-        constexpr double pitchLimit = 1.553343; // 89 degrees
+    void rotate(float deltaX, float deltaY) {
+        constexpr float sensitivity = 0.005f;
+        constexpr float pitchLimit = 1.553343f; // 89 degrees
 
         yaw_ += deltaX * sensitivity;
         pitch_ -= deltaY * sensitivity;
@@ -56,7 +56,7 @@ struct Camera {
             -std::cos(yaw_) * std::cos(pitch_)
         ));
 
-        const vec3 worldUp(0.0, 1.0, 0.0);
+        const vec3 worldUp(0.0f, 1.0f, 0.0f);
         const vec3 rightDirection =
             normalize(cross(lookAtDirection_, worldUp));
 
@@ -64,27 +64,27 @@ struct Camera {
             normalize(cross(rightDirection, lookAtDirection_));
     }
 
-    void moveForward(double d) {
+    void moveForward(float d) {
         position_ = position_ + lookAtDirection_ * d;
     }
 
-    void moveBackward(double d) {
+    void moveBackward(float d) {
         position_ = position_ - lookAtDirection_ * d;
     }
 
-    void strafeLeft(double d) {
+    void strafeLeft(float d) {
         position_ = position_ - right() * d;
     }
 
-    void strafeRight(double d) {
+    void strafeRight(float d) {
         position_ = position_ + right() * d;
     }
 
-    void moveUp(double d) {
+    void moveUp(float d) {
         position_ = position_ + upDirection_ * d;
     }
 
-    void moveDown(double d) {
+    void moveDown(float d) {
         position_ = position_ - upDirection_ * d;
     }
 
@@ -114,27 +114,27 @@ struct Camera {
 
     mat4 orthoProjection() const {
         mat4 translate = identity<4>();
-        translate[0][3] = -(r_ + l_) / 2.0;
-        translate[1][3] = -(t_ + b_) / 2.0;
-        translate[2][3] = -(n_ + f_) / 2.0;
+        translate[0][3] = -(r_ + l_) / 2.0f;
+        translate[1][3] = -(t_ + b_) / 2.0f;
+        translate[2][3] = -(n_ + f_) / 2.0f;
 
         mat4 scale = identity<4>();
-        scale[0][0] = 2.0 / (r_ - l_);
-        scale[1][1] = 2.0 / (t_ - b_);
-        scale[2][2] = 2.0 / (n_ - f_);
+        scale[0][0] = 2.0f / (r_ - l_);
+        scale[1][1] = 2.0f / (t_ - b_);
+        scale[2][2] = 2.0f / (n_ - f_);
 
         return scale * translate;
     }
 
     mat4 perspProjection() const {
         mat4 proj = identity<4>();
-        proj[0][0] = 2.0 * n_ / (r_ - l_);
-        proj[1][1] = 2.0 * n_ / (t_ - b_);
+        proj[0][0] = 2.0f * n_ / (r_ - l_);
+        proj[1][1] = 2.0f * n_ / (t_ - b_);
         proj[0][2] = (r_ + l_) / (r_ - l_);
         proj[1][2] = (t_ + b_) / (t_ - b_);
         proj[2][2] = -(f_ + n_) / (f_ - n_);
-        proj[2][3] = -2.0 * f_ * n_ / (f_ - n_);
-        proj[3][2] = -1.0;
+        proj[2][3] = -2.0f * f_ * n_ / (f_ - n_);
+        proj[3][2] = -1.0f;
         return proj;
     }
 

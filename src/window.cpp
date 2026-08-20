@@ -86,12 +86,12 @@ struct PollResult Window::pollEvents(Renderer& renderer, jyd::RenderMod& mod) {
             case SDL_KEYDOWN: {
                 Camera& camera = renderer.getCamera();
                 switch (event.key.keysym.scancode) {
-                case SDL_SCANCODE_W: camera.moveForward(0.1); res.needsRedraw = true; break;
-                case SDL_SCANCODE_S: camera.moveBackward(0.1); res.needsRedraw = true; break;
-                case SDL_SCANCODE_A: camera.strafeLeft(0.1); res.needsRedraw = true; break;
-                case SDL_SCANCODE_D: camera.strafeRight(0.1); res.needsRedraw = true; break;
-                case SDL_SCANCODE_Q: camera.moveUp(0.1); res.needsRedraw = true; break;
-                case SDL_SCANCODE_E: camera.moveDown(0.1); res.needsRedraw = true; break;
+                case SDL_SCANCODE_W: camera.moveForward(0.1f); res.needsRedraw = true; break;
+                case SDL_SCANCODE_S: camera.moveBackward(0.1f); res.needsRedraw = true; break;
+                case SDL_SCANCODE_A: camera.strafeLeft(0.1f); res.needsRedraw = true; break;
+                case SDL_SCANCODE_D: camera.strafeRight(0.1f); res.needsRedraw = true; break;
+                case SDL_SCANCODE_Q: camera.moveUp(0.1f); res.needsRedraw = true; break;
+                case SDL_SCANCODE_E: camera.moveDown(0.1f); res.needsRedraw = true; break;
 
 				case SDL_SCANCODE_M: mod = static_cast<jyd::RenderMod>((mod+1)%ModTypesCount); res.needsRedraw = true; break;
                 default: break;
@@ -112,7 +112,9 @@ struct PollResult Window::pollEvents(Renderer& renderer, jyd::RenderMod& mod) {
                     const int deltaX = event.motion.x - lastMouseX_;
                     const int deltaY = event.motion.y - lastMouseY_;
                     if (deltaX != 0 || deltaY != 0) {
-                        renderer.getCamera().rotate(deltaX, deltaY);
+                        renderer.getCamera().rotate(
+                            static_cast<float>(deltaX),
+                            static_cast<float>(deltaY));
                         res.needsRedraw = true;
                     }
                     lastMouseX_ = event.motion.x;
