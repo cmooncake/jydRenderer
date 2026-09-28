@@ -4,6 +4,9 @@
 #include "model.hpp"
 #include "model_selection_dialog.hpp"
 #include "texture.hpp"
+#if defined(JYD_ENABLE_LLVM)
+#include "llvm_shader.hpp"
+#endif
 
 #include <QApplication>
 #include <QByteArray>
@@ -12,6 +15,7 @@
 
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <vector>
 #include <thread>
 #include <chrono>
@@ -30,7 +34,11 @@ struct RenderItem {
         : model(modelPath), texture(texturePath) {}
 };
 
-int runRenderer(const std::vector<RenderItem>& scene, jyd::RenderMod mod) {
+int runRenderer(
+    const std::vector<RenderItem>& scene,
+    jyd::RenderMod mod,
+    jyd::ShaderProgram shaderProgram,
+    const std::filesystem::path& shaderFile) {
     constexpr int kWidth = 1200;
     constexpr int kHeight = 900;
 
@@ -46,17 +54,33 @@ int runRenderer(const std::vector<RenderItem>& scene, jyd::RenderMod mod) {
     double fps = 0.0;
     int totalTriangles = 0;
 
+    std::unique_ptr<jyd::CommonShader> shader;
+#if defined(JYD_ENABLE_LLVM)
+    if (shaderProgram == jyd::ShaderProgram::LlvmCommon) {
+        shader = shaderFile.empty()
+            ? std::make_unique<jyd::LlvmCommonShader>()
+            : std::make_unique<jyd::LlvmCommonShader>(shaderFile);
+    }
+#else
+    (void)shaderProgram;
+    (void)shaderFile;
+#endif
+    if (!shader) {
+        shader = std::make_unique<jyd::NativeCommonShader>();
+    }
+    std::cout << "Shader: " << shader->name() << '\n';
+
     while (true) {
         auto frame = window.pollEvents(renderer, mod);
         if (!frame.running) break;
         if (!init || frame.needsRedraw) {
             renderer.clear({ 20, 24, 33, 255 });
 
-            jyd::CommonShader shader;
             totalTriangles = 0;
             for (const RenderItem& item : scene) {
-                shader.texture = &item.texture;
-                totalTriangles += renderer.Pipeline(item.model, shader, mod);
+                shader->texture = &item.texture;
+                totalTriangles += renderer.Pipeline(
+                    item.model, *shader, mod);
             }
             window.present(framebuffer);
             init = true;
@@ -85,6 +109,9 @@ int main(int argc, char* argv[]) {
     
     try {
         std::vector<RenderItem> scene;
+        jyd::ShaderProgram shaderProgram =
+            jyd::ShaderProgram::NativeCommon;
+        std::filesystem::path shaderFile;
         while (true) {
             jyd::ModelSelectionDialog dialog;
             if (dialog.exec() != QDialog::Accepted) {
@@ -108,6 +135,11 @@ int main(int argc, char* argv[]) {
                 }
 
                 scene = std::move(loadedScene);
+                shaderProgram = dialog.shaderProgram();
+                const QByteArray shaderPath = dialog.shaderFile().toUtf8();
+                shaderFile = shaderPath.isEmpty()
+                    ? std::filesystem::path{}
+                    : std::filesystem::u8path(shaderPath.constData());
                 break;
             } catch (const std::exception& ex) {
                 QMessageBox::critical(
@@ -119,7 +151,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "Loaded " << scene.size()
                   << " model/texture pair(s).\n";
-        return runRenderer(scene, mod);
+        return runRenderer(scene, mod, shaderProgram, shaderFile);
     } catch (const std::exception& ex) {
         std::cerr << "Error: " << ex.what() << '\n';
         QMessageBox::critical(

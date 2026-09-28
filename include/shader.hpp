@@ -27,6 +27,60 @@ namespace jyd {
         vec2 texcoord;
     };
 
+    template<typename Varying>
+    struct VaryingTraits;
+
+    template<>
+    struct VaryingTraits<Commonv2f> {
+        static const vec4& clipPosition(const Commonv2f& value) {
+            return value.position;
+        }
+
+        static Commonv2f interpolateEdge(
+            const Commonv2f& from,
+            const Commonv2f& to,
+            float t) {
+            return {
+                from.position + (to.position - from.position) * t,
+                from.normal + (to.normal - from.normal) * t,
+                from.texcoord + (to.texcoord - from.texcoord) * t
+            };
+        }
+
+        static Commonv2f interpolateFragment(
+            const Commonv2f (&vertices)[3],
+            float alpha,
+            float beta,
+            float gamma) {
+            const float correctedAlpha =
+                alpha / clipPosition(vertices[0])[3];
+            const float correctedBeta =
+                beta / clipPosition(vertices[1])[3];
+            const float correctedGamma =
+                gamma / clipPosition(vertices[2])[3];
+            const float denominator =
+                correctedAlpha + correctedBeta + correctedGamma;
+
+            Commonv2f result;
+            result.position =
+                (vertices[0].position * correctedAlpha +
+                 vertices[1].position * correctedBeta +
+                 vertices[2].position * correctedGamma) /
+                denominator;
+            result.normal = normalize(
+                (vertices[0].normal * correctedAlpha +
+                 vertices[1].normal * correctedBeta +
+                 vertices[2].normal * correctedGamma) /
+                denominator);
+            result.texcoord =
+                (vertices[0].texcoord * correctedAlpha +
+                 vertices[1].texcoord * correctedBeta +
+                 vertices[2].texcoord * correctedGamma) /
+                denominator;
+            return result;
+        }
+    };
+
     struct CommonShader : public IShader<Commona2v, Commonv2f> {
         mat4 mvp;
         mat4 vp;
@@ -36,6 +90,15 @@ namespace jyd {
         vec3 SpecularLightDirection;
         vec3 DiffuseLightDirection;
         vec3 AmbientLightColor;
+
+        virtual const char* name() const = 0;
+        virtual void prepare() {}
+    };
+
+    struct NativeCommonShader final : public CommonShader {
+        const char* name() const override {
+            return "Native Common";
+        }
 
         Commonv2f vertex(const Commona2v& vertex) const override {
             vec4 pos = mvp * vec4(vertex.position, 1.0f);

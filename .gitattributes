@@ -1,0 +1,2 @@
+# Preserve upstream SDK bytes; these are ordinary Git files, not LFS pointers.
+third_party/llvm/** -text

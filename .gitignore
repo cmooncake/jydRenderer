@@ -1,4 +1,8 @@
 build/
+/output/pdf/
+/tmp/pdfs/
+cmake/LocalDependencies.cmake
+CMakeUserPresets.json
 dist/*
 !dist/*.zip
 !dist/*.sha256

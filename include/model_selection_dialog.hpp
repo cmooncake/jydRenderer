@@ -7,6 +7,7 @@
 class QLineEdit;
 class QListWidget;
 class QPushButton;
+class QComboBox;
 
 namespace jyd {
 
@@ -15,11 +16,18 @@ struct ModelTextureSelection {
     QString textureFile;
 };
 
+enum class ShaderProgram {
+    NativeCommon = 0,
+    LlvmCommon = 1
+};
+
 class ModelSelectionDialog final : public QDialog {
 public:
     explicit ModelSelectionDialog(QWidget* parent = nullptr);
 
     const std::vector<ModelTextureSelection>& selections() const;
+    ShaderProgram shaderProgram() const;
+    QString shaderFile() const;
 
 protected:
     void accept() override;
@@ -27,6 +35,7 @@ protected:
 private:
     void browse();
     void browseTexture();
+    void browseShader();
     void addSelection();
     void removeSelected();
     bool currentSelectionValid() const;
@@ -38,6 +47,7 @@ private:
     QPushButton* addButton_ = nullptr;
     QPushButton* removeButton_ = nullptr;
     QPushButton* confirmButton_ = nullptr;
+    QComboBox* shaderProgramCombo_ = nullptr;
     std::vector<ModelTextureSelection> selections_;
 };
 

@@ -9,7 +9,14 @@
         "value": "x64",
         "strategy": "set"
       },
-      "vcpkgConfiguration": "Disabled"
+      "vcpkgConfiguration": "Disabled",
+      "variables": [
+        {
+          "name": "JYD_ENABLE_LLVM",
+          "value": "true",
+          "type": "BOOL"
+        }
+      ]
     }
   ]
 }

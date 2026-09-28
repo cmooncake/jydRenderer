@@ -2,7 +2,7 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 21,
     "patch": 0
   },
   "configurePresets": [
@@ -40,6 +40,15 @@
       "displayName": "Visual Studio 2022 x64",
       "description": "VS2022 打开文件夹时使用；默认使用 third_party/SDL2 本地源码",
       "inherits": "base-vs2022"
+    },
+    {
+      "name": "vs2022-x64-llvm",
+      "displayName": "Visual Studio 2022 x64 + LLVM",
+      "description": "VS2022 LLVM shader runtime using the bundled Windows x64 SDK",
+      "inherits": "base-vs2022",
+      "cacheVariables": {
+        "JYD_ENABLE_LLVM": "ON"
+      }
     },
     {
       "name": "windows-x64-debug",
@@ -106,6 +115,18 @@
       "name": "vs2022-x64-release",
       "displayName": "VS2022 Release",
       "configurePreset": "vs2022-x64",
+      "configuration": "Release"
+    },
+    {
+      "name": "vs2022-x64-llvm-debug",
+      "displayName": "VS2022 LLVM Debug",
+      "configurePreset": "vs2022-x64-llvm",
+      "configuration": "Debug"
+    },
+    {
+      "name": "vs2022-x64-llvm-release",
+      "displayName": "VS2022 LLVM Release",
+      "configurePreset": "vs2022-x64-llvm",
       "configuration": "Release"
     },
     {

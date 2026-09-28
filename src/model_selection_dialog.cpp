@@ -1,6 +1,9 @@
 #include "model_selection_dialog.hpp"
 
 #include <QDialogButtonBox>
+#include <QComboBox>
+#include <QCoreApplication>
+#include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -22,6 +25,38 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
     auto* description = new QLabel(
         tr("Add one or more OBJ models with their corresponding textures."),
         this);
+
+    auto* shaderProgramLabel = new QLabel(tr("Rendering program:"), this);
+    shaderProgramCombo_ = new QComboBox(this);
+#if defined(JYD_ENABLE_LLVM)
+    const QDir shaderDirectory(
+        QCoreApplication::applicationDirPath() + QStringLiteral("/shaders"));
+    const QFileInfoList shaderFiles = shaderDirectory.entryInfoList(
+        {QStringLiteral("*.jydshader")},
+        QDir::Files | QDir::Readable,
+        QDir::Name);
+    for (const QFileInfo& shaderFile : shaderFiles) {
+        shaderProgramCombo_->addItem(
+            tr("LLVM JIT - %1").arg(shaderFile.completeBaseName()),
+            static_cast<int>(ShaderProgram::LlvmCommon));
+        shaderProgramCombo_->setItemData(
+            shaderProgramCombo_->count() - 1,
+            shaderFile.absoluteFilePath(),
+            Qt::UserRole + 1);
+    }
+    if (shaderFiles.isEmpty()) {
+        shaderProgramCombo_->addItem(
+            tr("LLVM JIT - Built-in Common"),
+            static_cast<int>(ShaderProgram::LlvmCommon));
+    }
+#endif
+    shaderProgramCombo_->addItem(
+        tr("Native C++ - Common textured lighting (reference)"),
+        static_cast<int>(ShaderProgram::NativeCommon));
+    auto* shaderBrowseButton = new QPushButton(tr("Browse shader..."), this);
+    auto* shaderProgramLayout = new QHBoxLayout;
+    shaderProgramLayout->addWidget(shaderProgramCombo_, 1);
+    shaderProgramLayout->addWidget(shaderBrowseButton);
     pathEdit_ = new QLineEdit(this);
     pathEdit_->setReadOnly(true);
     pathEdit_->setPlaceholderText(tr("No model selected"));
@@ -65,6 +100,8 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
 
     auto* layout = new QVBoxLayout(this);
     layout->addWidget(description);
+    layout->addWidget(shaderProgramLabel);
+    layout->addLayout(shaderProgramLayout);
     layout->addLayout(pathLayout);
     layout->addWidget(textureLabel);
     layout->addLayout(texturePathLayout);
@@ -75,6 +112,8 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
 
     connect(browseButton, &QPushButton::clicked,
             this, [this] { browse(); });
+    connect(shaderBrowseButton, &QPushButton::clicked,
+            this, [this] { browseShader(); });
     connect(buttons, &QDialogButtonBox::accepted,
             this, &ModelSelectionDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected,
@@ -97,6 +136,15 @@ ModelSelectionDialog::ModelSelectionDialog(QWidget* parent)
 const std::vector<ModelTextureSelection>&
 ModelSelectionDialog::selections() const {
     return selections_;
+}
+
+ShaderProgram ModelSelectionDialog::shaderProgram() const {
+    return static_cast<ShaderProgram>(
+        shaderProgramCombo_->currentData().toInt());
+}
+
+QString ModelSelectionDialog::shaderFile() const {
+    return shaderProgramCombo_->currentData(Qt::UserRole + 1).toString();
 }
 
 void ModelSelectionDialog::browse() {
@@ -124,6 +172,33 @@ void ModelSelectionDialog::browseTexture() {
     }
 
     updateConfirmState();
+}
+
+void ModelSelectionDialog::browseShader() {
+#if defined(JYD_ENABLE_LLVM)
+    const QString filename = QFileDialog::getOpenFileName(
+        this,
+        tr("Select programmable shader"),
+        QString(),
+        tr("jydRenderer shaders (*.jydshader);;All files (*)"));
+    if (filename.isEmpty()) {
+        return;
+    }
+
+    const QFileInfo shaderFile(filename);
+    shaderProgramCombo_->addItem(
+        tr("LLVM JIT - %1").arg(shaderFile.completeBaseName()),
+        static_cast<int>(ShaderProgram::LlvmCommon));
+    const int row = shaderProgramCombo_->count() - 1;
+    shaderProgramCombo_->setItemData(
+        row, shaderFile.absoluteFilePath(), Qt::UserRole + 1);
+    shaderProgramCombo_->setCurrentIndex(row);
+#else
+    QMessageBox::information(
+        this,
+        tr("LLVM disabled"),
+        tr("Configure this build with JYD_ENABLE_LLVM=ON to load shader files."));
+#endif
 }
 
 bool ModelSelectionDialog::currentSelectionValid() const {

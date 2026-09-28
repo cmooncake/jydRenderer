@@ -77,18 +77,16 @@ std::vector<vec4> clipToViewFrustum(std::vector<vec4> polygon) {
 }
 
 float clipDistance(const Commonv2f& vertex, int plane) {
-    return clipDistance(vertex.position, plane);
+    return clipDistance(
+        VaryingTraits<Commonv2f>::clipPosition(vertex),
+        plane);
 }
 
 Commonv2f interpolateClipVertex(
     const Commonv2f& from,
     const Commonv2f& to,
     float t) {
-    return {
-        from.position + (to.position - from.position) * t,
-        from.normal + (to.normal - from.normal) * t,
-        from.texcoord + (to.texcoord - from.texcoord) * t,
-    };
+    return VaryingTraits<Commonv2f>::interpolateEdge(from, to, t);
 }
 
 std::vector<Commonv2f> clipAgainstPlane(
@@ -301,31 +299,24 @@ void Renderer::drawTriangle_byShader(int x0, int y0, float z0, int x1, int y1, f
             float z_current = getZbuffer(x, y);
             if (zbuf < z_current)
             {
-                const float correctedAlpha = alpha / vertices[0].position[3];
-                const float correctedBeta = beta / vertices[1].position[3];
-                const float correctedGamma = gamma / vertices[2].position[3];
+                const float correctedAlpha = alpha /
+                    VaryingTraits<Commonv2f>::clipPosition(vertices[0])[3];
+                const float correctedBeta = beta /
+                    VaryingTraits<Commonv2f>::clipPosition(vertices[1])[3];
+                const float correctedGamma = gamma /
+                    VaryingTraits<Commonv2f>::clipPosition(vertices[2])[3];
                 const float denominator =
                     correctedAlpha + correctedBeta + correctedGamma;
                 if (std::abs(denominator) < 1e-8f) {
                     continue;
                 }
 
-                Commonv2f fragmentInput;
-                fragmentInput.position =
-                    (vertices[0].position * correctedAlpha +
-                     vertices[1].position * correctedBeta +
-                     vertices[2].position * correctedGamma) /
-                    denominator;
-                fragmentInput.normal = normalize(
-                    (vertices[0].normal * correctedAlpha +
-                     vertices[1].normal * correctedBeta +
-                     vertices[2].normal * correctedGamma) /
-                    denominator);
-                fragmentInput.texcoord =
-                    (vertices[0].texcoord * correctedAlpha +
-                        vertices[1].texcoord * correctedBeta +
-                        vertices[2].texcoord * correctedGamma) /
-                    denominator;
+                const Commonv2f fragmentInput =
+                    VaryingTraits<Commonv2f>::interpolateFragment(
+                        vertices,
+                        alpha,
+                        beta,
+                        gamma);
 
 				Color color{};
                 if (shader.fragment(fragmentInput, color)) {
@@ -413,6 +404,7 @@ int Renderer::Pipeline(const Model& model, struct CommonShader& shader, RenderMo
 	shader.DiffuseLightDirection = DiffuseLightDirection();
 	shader.AmbientLightColor = AmbientLightColor();
 	shader.cameraPosition = camera.position_;
+    shader.prepare();
     const float halfW = static_cast<float>(framebuffer_.width()) * 0.5f;
     const float halfH = static_cast<float>(framebuffer_.height()) * 0.5f;
     int totalTriangles = 0;

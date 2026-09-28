@@ -1,0 +1,21 @@
+// jydRenderer's first programmable shader.
+// Inputs: in.position, in.normal, in.texcoord
+// Uniforms: mvp, vp, cameraPosition, specularLightDirection,
+//           diffuseLightDirection, ambientLightColor
+
+shader CommonTexturedLighting {
+    vertex {
+        position = transform_point(mvp, in.position);
+        normal = normalize(transform_direction(vp, in.normal));
+        texcoord = in.texcoord;
+    }
+
+    fragment {
+        let texel = sample(in.texcoord);
+        let diffuse = clamp(
+            dot(diffuseLightDirection, -in.normal),
+            0.0,
+            1.0);
+        color = texel * (diffuse * 0.8 + 0.2);
+    }
+}

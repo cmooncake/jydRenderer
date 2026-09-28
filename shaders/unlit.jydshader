@@ -1,0 +1,11 @@
+shader UnlitTexture {
+    vertex {
+        position = transform_point(mvp, in.position);
+        normal = normalize(transform_direction(vp, in.normal));
+        texcoord = in.texcoord;
+    }
+
+    fragment {
+        color = sample(in.texcoord);
+    }
+}
