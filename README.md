@@ -26,6 +26,8 @@ jydRenderer/
 
 ## 依赖
 
+后续开发路线：[光栅化 PBR 逐步实施手册](docs/raster-pbr-implementation.md)。
+
 - CMake 3.21+（VS2022 自带，需勾选「使用 C++ 的桌面开发」）
 - Qt 5.15+ 或 Qt 6，需包含 Widgets 组件
 - SDL2 2.30.10（源码已放在 `third_party/SDL2`，配置时不需要联网）
