@@ -140,7 +140,7 @@ struct Camera {
     }
 
     mat4 perspProjection() const {
-        mat4 proj = identity<4>();
+        mat4 proj{};
         proj[0][0] = 2.0f * n_ / (r_ - l_);
         proj[1][1] = 2.0f * n_ / (t_ - b_);
         proj[0][2] = (r_ + l_) / (r_ - l_);
@@ -148,6 +148,7 @@ struct Camera {
         proj[2][2] = -(f_ + n_) / (f_ - n_);
         proj[2][3] = -2.0f * f_ * n_ / (f_ - n_);
         proj[3][2] = -1.0f;
+        proj[3][3] = 0.0f;
         return proj;
     }
 

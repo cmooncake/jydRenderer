@@ -234,4 +234,16 @@ if(WIN32)
     endif()
 endif()
 
+
+include(CTest)
+if(BUILD_TESTING)
+    add_executable(jydCameraTests tools/camera_tests.cpp)
+    target_include_directories(jydCameraTests PRIVATE include tools)
+    if(MSVC)
+        target_compile_options(jydCameraTests PRIVATE /utf-8)
+    endif()
+    add_test(NAME camera COMMAND jydCameraTests)
+endif()
+
+
 install(TARGETS jydRenderer RUNTIME DESTINATION bin)
