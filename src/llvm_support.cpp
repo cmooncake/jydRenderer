@@ -1,5 +1,6 @@
 #include "llvm_support.hpp"
 #include "shader_language.hpp"
+#include "shader_abi.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -120,6 +121,10 @@ llvm::Value* clampFloat(
 void buildCommonVertexFunction(
     llvm::Module& module,
     llvm::IRBuilder<>& builder) {
+    namespace I = shader_abi::VertexIn;
+    namespace V = shader_abi::Varying;
+    namespace U = shader_abi::Uniform;
+
     llvm::Type* pointerType = builder.getPtrTy();
     llvm::FunctionType* type = llvm::FunctionType::get(
         builder.getVoidTy(),
@@ -143,15 +148,15 @@ void buildCommonVertexFunction(
     output->setName("output");
 
     llvm::Value* position[4] = {
-        loadFloat(builder, input, 0),
-        loadFloat(builder, input, 1),
-        loadFloat(builder, input, 2),
+        loadFloat(builder, input, I::Position + 0),
+        loadFloat(builder, input, I::Position + 1),
+        loadFloat(builder, input, I::Position + 2),
         llvm::ConstantFP::get(builder.getFloatTy(), 1.0)
     };
     llvm::Value* normal[4] = {
-        loadFloat(builder, input, 3),
-        loadFloat(builder, input, 4),
-        loadFloat(builder, input, 5),
+        loadFloat(builder, input, I::Normal + 0),
+        loadFloat(builder, input, I::Normal + 1),
+        loadFloat(builder, input, I::Normal + 2),
         llvm::ConstantFP::get(builder.getFloatTy(), 0.0)
     };
 
@@ -162,10 +167,10 @@ void buildCommonVertexFunction(
             transformed = builder.CreateFAdd(
                 transformed,
                 builder.CreateFMul(
-                    loadFloat(builder, uniforms, row * 4 + column),
+                    loadFloat(builder, uniforms, U::Mvp + row * 4 + column),
                     position[column]));
         }
-        storeFloat(builder, output, row, transformed);
+        storeFloat(builder, output, V::Position + row, transformed);
     }
 
     llvm::Value* transformedNormal[3]{};
@@ -178,7 +183,7 @@ void buildCommonVertexFunction(
             transformedNormal[row] = builder.CreateFAdd(
                 transformedNormal[row],
                 builder.CreateFMul(
-                    loadFloat(builder, uniforms, 16 + row * 4 + column),
+                    loadFloat(builder, uniforms, U::View + row * 4 + column),
                     normal[column]));
         }
         lengthSquared = builder.CreateFAdd(
@@ -193,17 +198,23 @@ void buildCommonVertexFunction(
         storeFloat(
             builder,
             output,
-            4 + component,
+            V::Normal + component,
             builder.CreateFDiv(transformedNormal[component], length));
     }
-    storeFloat(builder, output, 7, loadFloat(builder, input, 6));
-    storeFloat(builder, output, 8, loadFloat(builder, input, 7));
+    storeFloat(builder, output, V::Texcoord,
+        loadFloat(builder, input, I::Texcoord));
+
+    storeFloat(builder, output, V::Texcoord + 1,
+        loadFloat(builder, input, I::Texcoord + 1));
     builder.CreateRetVoid();
 }
 
 void buildCommonFragmentFunction(
     llvm::Module& module,
     llvm::IRBuilder<>& builder) {
+	namespace V = shader_abi::Varying;
+	namespace U = shader_abi::Uniform;
+
     llvm::Type* pointerType = builder.getPtrTy();
     llvm::FunctionType* type = llvm::FunctionType::get(
         builder.getInt32Ty(),
@@ -232,7 +243,7 @@ void buildCommonFragmentFunction(
     llvm::Value* texel = builder.CreateCall(
         samplerType,
         sampler,
-        {texture, loadFloat(builder, input, 7), loadFloat(builder, input, 8)});
+        {texture, loadFloat(builder, input, V::Texcoord), loadFloat(builder, input, V::Texcoord + 1)});
 
     llvm::Value* diffuse = llvm::ConstantFP::get(
         builder.getFloatTy(), 0.0);
@@ -240,8 +251,8 @@ void buildCommonFragmentFunction(
         diffuse = builder.CreateFAdd(
             diffuse,
             builder.CreateFMul(
-                loadFloat(builder, uniforms, 38 + component),
-                builder.CreateFNeg(loadFloat(builder, input, 4 + component))));
+                loadFloat(builder, uniforms, U::DiffuseLight + component),
+                builder.CreateFNeg(loadFloat(builder, input, V::Normal + component))));
     }
     diffuse = clampFloat(builder, diffuse, 0.0f, 1.0f);
     llvm::Value* lighting = builder.CreateFAdd(
@@ -505,6 +516,10 @@ extern "C" int jydRunLlvmSmokeTest(LlvmSmokeResult* resultPointer) {
         targetTriple);
     result.value = smokeFunction(21.0f);
     return 1;
+}
+
+extern "C" std::uint32_t jydShaderAbiVersion() {
+    return shader_abi::Version;
 }
 
 } // namespace jyd

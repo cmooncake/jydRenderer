@@ -39,9 +39,15 @@ void writeVector(float* destination, const vec3& vector) {
     destination[2] = vector.z;
 }
 
+void requireShaderAbi() {
+    if (jyd::jydShaderAbiVersion() != jyd::shader_abi::Version)
+        throw std::runtime_error("shader compiler ABI mismatch; rebuild EXE and DLL");
+}
+
 } // namespace
 
 LlvmCommonShader::LlvmCommonShader() {
+    requireShaderAbi();
     if (!jydCompileBuiltinCommonShader(&program_)) {
         throw std::runtime_error(
             std::string("Cannot compile LLVM Common shader: ") +
@@ -52,6 +58,7 @@ LlvmCommonShader::LlvmCommonShader() {
 
 LlvmCommonShader::LlvmCommonShader(
     const std::filesystem::path& sourcePath) {
+    requireShaderAbi();
     std::ifstream input(sourcePath, std::ios::binary);
     if (!input) {
         throw std::runtime_error(
@@ -77,28 +84,44 @@ const char* LlvmCommonShader::name() const {
 }
 
 void LlvmCommonShader::prepare() {
-    writeMatrix(uniforms_.data(), mvp);
-    writeMatrix(uniforms_.data() + 16, vp);
-    writeVector(uniforms_.data() + 32, cameraPosition);
-    writeVector(uniforms_.data() + 35, SpecularLightDirection);
-    writeVector(uniforms_.data() + 38, DiffuseLightDirection);
-    writeVector(uniforms_.data() + 41, AmbientLightColor);
+    namespace U = shader_abi::Uniform;
+    writeMatrix(uniforms_.data() + U::Mvp, mvp);
+    writeMatrix(uniforms_.data() + U::View, vp);
+    writeVector(uniforms_.data() + U::Camera, cameraPosition);
+    writeVector(uniforms_.data() + U::SpecularLight, SpecularLightDirection);
+    writeVector(uniforms_.data() + U::DiffuseLight, DiffuseLightDirection);
+    writeVector(uniforms_.data() + U::Ambient, AmbientLightColor);
 }
 
 Commonv2f LlvmCommonShader::vertex(const Commona2v& input) const {
-    const float shaderInput[8] = {
-        input.position.x, input.position.y, input.position.z,
-        input.normal.x, input.normal.y, input.normal.z,
-        input.texcoord.x, input.texcoord.y
-    };
-    float shaderOutput[9]{};
+	namespace I = shader_abi::VertexIn;
+	namespace V = shader_abi::Varying;
+
+	float shaderInput[I::Count]{};
+
+    for (int i = 0; i < 3; ++i) {
+        shaderInput[I::Position + i] = input.position[i];
+        shaderInput[I::Normal + i] = input.normal[i];
+	}
+    for(int i = 0; i < 2; ++i) {
+        shaderInput[I::Texcoord + i] = input.texcoord[i];
+	}
+
+    float shaderOutput[V::Count]{};
     program_.vertex(uniforms_.data(), shaderInput, shaderOutput);
 
-    return {
-        vec4(shaderOutput[0], shaderOutput[1], shaderOutput[2], shaderOutput[3]),
-        vec3(shaderOutput[4], shaderOutput[5], shaderOutput[6]),
-        vec2(shaderOutput[7], shaderOutput[8])
-    };
+    // 解包：数组 → 结构体
+    Commonv2f result{};
+    for (int c = 0; c < 4; ++c) {
+        result.position[c] = shaderOutput[V::Position + c];
+    }
+    for (int c = 0; c < 3; ++c) {
+        result.normal[c] = shaderOutput[V::Normal + c];
+    }
+    for (int c = 0; c < 2; ++c) {
+        result.texcoord[c] = shaderOutput[V::Texcoord + c];
+    }
+    return result;
 }
 
 bool LlvmCommonShader::fragment(const Commonv2f& input, Color& color) const {
@@ -107,11 +130,17 @@ bool LlvmCommonShader::fragment(const Commonv2f& input, Color& color) const {
         return false;
     }
 
-    const float shaderInput[9] = {
-        input.position.x, input.position.y, input.position.z, input.position.w,
-        input.normal.x, input.normal.y, input.normal.z,
-        input.texcoord.x, input.texcoord.y
-    };
+	namespace V = shader_abi::Varying;
+
+	float shaderInput[V::Count]{};
+    for(int i = 0; i < 4; ++i) {
+        shaderInput[V::Position + i] = input.position[i];
+	}
+    for(int i = 0; i < 3; ++i)
+		shaderInput[V::Normal + i] = input.normal[i];
+	for (int i = 0; i < 2; ++i) 
+		shaderInput[V::Texcoord + i] = input.texcoord[i];
+
     int discard = 0;
     const std::uint32_t packed = program_.fragment(
         uniforms_.data(),

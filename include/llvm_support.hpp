@@ -63,6 +63,10 @@ extern "C" JYD_SHADER_COMPILER_API void jydDestroyShaderProgram(
 extern "C" JYD_SHADER_COMPILER_API int jydRunLlvmSmokeTest(
     LlvmSmokeResult* result);
 
+extern "C" JYD_SHADER_COMPILER_API std::uint32_t jydShaderAbiVersion();
+
 } // namespace jyd
+
+
 
 #undef JYD_SHADER_COMPILER_API

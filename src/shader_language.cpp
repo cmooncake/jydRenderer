@@ -495,22 +495,35 @@ private:
     }
 
     void createBuiltins() {
-        variables_["mvp"] = {ValueKind::Mat4, {}, 0};
-        variables_["vp"] = {ValueKind::Mat4, {}, 16};
-        variables_["cameraPosition"] = vectorFromPointer(uniforms_, 32, 3);
+        variables_["mvp"] = {ValueKind::Mat4, {}, shader_abi::Uniform::Mvp };
+        variables_["vp"] = {ValueKind::Mat4, {}, shader_abi::Uniform::View };
+        variables_["cameraPosition"] = vectorFromPointer(uniforms_, shader_abi::Uniform::Camera, 3);
         variables_["specularLightDirection"] =
-            vectorFromPointer(uniforms_, 35, 3);
+            vectorFromPointer(uniforms_, shader_abi::Uniform::SpecularLight, 3);
         variables_["diffuseLightDirection"] =
-            vectorFromPointer(uniforms_, 38, 3);
+            vectorFromPointer(uniforms_, shader_abi::Uniform::DiffuseLight, 3);
         variables_["ambientLightColor"] =
-            vectorFromPointer(uniforms_, 41, 3);
+            vectorFromPointer(uniforms_, shader_abi::Uniform::Ambient, 3);
+
+        namespace I = shader_abi::VertexIn;
+        namespace V = shader_abi::Varying;
+
+        const bool isVertex = stage_ == Stage::Vertex;
 
         variables_["in.position"] = vectorFromPointer(
-            input_, 0, stage_ == Stage::Vertex ? 3 : 4);
+            input_,
+            isVertex ? I::Position : V::Position,
+            isVertex ? 3 : 4);
+
         variables_["in.normal"] = vectorFromPointer(
-            input_, stage_ == Stage::Vertex ? 3 : 4, 3);
+            input_,
+            isVertex ? I::Normal : V::Normal,
+            3);
+
         variables_["in.texcoord"] = vectorFromPointer(
-            input_, stage_ == Stage::Vertex ? 6 : 7, 2);
+            input_,
+            isVertex ? I::Texcoord : V::Texcoord,
+            2);
     }
 
     CodeValue emit(const Expression& expression) {
@@ -767,9 +780,11 @@ private:
     }
 
     bool finishVertex() {
-        return storeRequired("position", ValueKind::Vec4, 0) &&
-            storeRequired("normal", ValueKind::Vec3, 4) &&
-            storeRequired("texcoord", ValueKind::Vec2, 7) &&
+        namespace V = shader_abi::Varying;
+
+        return storeRequired("position", ValueKind::Vec4, V::Position) &&
+            storeRequired("normal", ValueKind::Vec3, V::Normal) &&
+            storeRequired("texcoord", ValueKind::Vec2, V::Texcoord) &&
             (builder_.CreateRetVoid(), true);
     }
 

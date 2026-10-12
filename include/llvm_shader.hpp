@@ -2,6 +2,7 @@
 
 #include "llvm_support.hpp"
 #include "shader.hpp"
+#include "shader_abi.hpp"
 
 #include <array>
 #include <filesystem>
@@ -25,7 +26,7 @@ public:
 
 private:
     JydShaderProgram program_{};
-    std::array<float, 44> uniforms_{};
+    std::array<float, shader_abi::Uniform::Count> uniforms_{};
     std::string name_;
 };
 

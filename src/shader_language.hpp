@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+#include "shader_abi.hpp"
+
 namespace llvm {
 class DataLayout;
 class LLVMContext;
