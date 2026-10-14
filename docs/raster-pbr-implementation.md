@@ -1,8 +1,8 @@
 # 光栅化 PBR：逐步实施手册
 
-初始代码核对日期：2026-10-10；手册初始基线：`922fef3`。最新验收：2026-10-12，第 1 步基于 `f51b871` 之后的工作区改动完成。旧版手册标记的 `eb0e0ba` 不再作为当前状态的依据。
+初始代码核对日期：2026-10-10；手册初始基线：`922fef3`。最新验收：2026-10-14，第 2 步在 `ea8529d` 基础上完成，代码、测试和本文更新一并纳入第 2 步提交。旧版手册标记的 `eb0e0ba` 不再作为当前状态的依据。
 
-这是一份分步实施手册：**第 0–1 步已完成，第 2–8 步待执行**。更新本文不代表渲染器已完成 PBR。下面每步先说明该步开始前的状况，再说明目标和具体执行代码。相机修正、统一布局常量、ABI 版本检查及相应测试已落地；第 2 步起的新增类型、字段、函数和脚本仍是目标代码，必须按依赖顺序实现，不能把最后的 shader 直接交给当前编译器。
+这是一份分步实施手册：**第 0–2 步已完成，第 3–8 步待执行**。更新本文不代表渲染器已完成 PBR。下面每步先说明该步开始前的状况，再说明目标和具体执行代码。当前已实现世界位置传递、世界空间原始法线、透视插值和片元安全归一化，ABI 为 Version=2 / VertexIn=8 / Varying=12 / Uniform=44。第 3 步起的新增类型、字段、函数和脚本仍是目标代码，不能把最后的 PBR shader 直接交给当前编译器。
 
 ## 范围与使用方法
 
@@ -12,13 +12,40 @@
 
 代码块分两类：标为“完整新增文件”的可以作为该文件初版；标为“替换函数/插入片段”的须放入指定类或函数，并删除对应旧代码。头文件依赖在完整文件中列出；插入片段需要按说明补 include。测试中的 `check`/`near` 在第 0 步定义。命令均从仓库根目录执行。
 
+**2026-10-14 协作约定：**核心公式由你实现；助手负责接口、数据打包、Native/JIT 同步、构建、测试和文档维护。发现算法问题先给出失败用例与原因，不直接代写 PBR 核心公式。第 0–2 步现在保留作实现说明，不要重复粘贴覆盖现有源码；后续从第 3 步继续，提交、推送另行确认。10 月 13 日的修改仅为手册定位修订，10 月 14 日才完成第 2 步生产代码的工程收尾和测试。
+
+阅读下面修改指令时，先看“文件 → 搜索锚点 → 所属类/函数 → 操作范围”。“替换完整函数”包含函数签名及其配对大括号，但不包含外层类；“在函数末尾插入”指最后一个 `}` **里面**，不是后面。找不到 `StageCompiler::createBuiltins` 时搜 `void createBuiltins()`：它在类内定义，源码没有 `StageCompiler::` 前缀。新增字段按“不存在才添加”执行，不能复制出两个同名字段或函数。
+
+### 源码定位索引
+
+下面路径均相对仓库根目录。优先搜索符号，不依赖会随修改漂移的行号。
+
+| 文件 | 搜索锚点 / 所属范围 | 本手册何处修改 |
+| --- | --- | --- |
+| `include/camera.hpp` | `mat4 perspProjection() const`，`Camera` 内 | 0，已完成 |
+| `include/shader_abi.hpp` | `Version`、`namespace Varying`、`namespace Uniform` | 1 已完成；2、3、5 升级布局/版本 |
+| `include/shader.hpp` | `struct Commonv2f`；`struct NativeCommonShader` 内的 `vertex`/`fragment`；`VaryingTraits<Commonv2f>` | 2 的数据、插值、Native 光照；3 的公共参数；5 的颜色接口；7 新增 PBR 类 |
+| `include/llvm_shader.hpp` | `class LlvmCommonShader` 内 fragment 声明、`uniforms_` | 1、5 |
+| `src/llvm_shader.cpp` | `LlvmCommonShader::vertex`、`::fragment`、`::prepare`；匿名命名空间 `sampleTexture` | 2 的世界位置传递；3 上传参数；5 浮点 ABI |
+| `src/shader_language.cpp` | `class StageCompiler` 的 `private:`；其 `createBuiltins`、`finishVertex`、`normalize` | 2；3 新 uniforms；4 语法和内建函数；5 片元 ABI |
+| `src/llvm_support.cpp` | 匿名命名空间的 `buildCommonVertexFunction`、`buildCommonFragmentFunction` | 2 的手写 IR；5 的浮点 ABI。不要误改后面的 LLVM 42 测试 |
+| `include/renderer.hpp`、`src/renderer.cpp` | `class Renderer`；`Renderer::drawTriangle_byShader`、`Renderer::clear` | 2 的光方向/插值检查；5 临时显示；6 HDR |
+| `src/main.cpp` | 匿名命名空间 `RenderItem`、`runRenderer` 的模型循环 | 3 材质绑定；6 resolve；8 shader 选择 |
+| `shaders/common.jydshader`、`shaders/unlit.jydshader` | 最外层 shader 内的 `vertex {` / `fragment {` | 2、5；不修改 shader 名字 |
+| `tools/llvm_smoke.cpp` | `testRowMajorMatrix`、`testUniformFields`、`runSmokeTests` | 2 改测试语义，5 改调用签名；测试不在 `main.cpp` |
+| `tools/varying_tests.cpp` | `main` | 2 的世界位置、UV、原始法线和裁剪边插值回归 |
+| `tools/shader_abi_tests.cpp`、`tools/fixtures/world_position.jydshader` | `testWrappers`；诊断 shader 的 fragment 块 | 2 的真实宿主打包/解包与三后端 RGB 对照；5 同步迁移浮点输出 |
+| 根 `CMakeLists.txt` | 已有 `include(CTest)`、`if(BUILD_TESTING)`；文件末尾 `install(` | 已注册 camera/varying/llvm_smoke/shader_abi；8 只补后续测试，避免重复目标 |
+
+每个**大步骤**是一个完整的可验证单元。只做完 2.2，其他消费者尚未迁移时，出现编译错误或旧测试失败是中间状态；应完成 2.1–2.6 再构建验收。不要为了让中间状态通过而把新增字段删回去。
+
 特别注意：本项目 `vec3 * vec3` 返回**点积 float**；shader 语言里的两个 vec3 相乘却是**逐分量乘法**。C++ 颜色乘法统一使用本文定义的 `mul(a,b)`，不要逐字照抄 shader 运算符。
 
 ## 执行顺序
 
 - [x] 0. 保存现状，建立数值测试，修正透视矩阵
 - [x] 1. 集中 C++ / JIT 数据布局与 ABI 版本
-- [ ] 2. 传递世界位置，统一法线/光照空间，补齐插值
+- [x] 2. 传递世界位置，统一法线/光照空间，补齐插值
 - [ ] 3. 添加每模型材质与方向光 uniforms
 - [ ] 4. 实现最小数学内置函数、分量读取与构造器
 - [ ] 5. 迁移线性浮点片元输出和基础色采样回调
@@ -230,9 +257,9 @@ void LlvmCommonShader::prepare() {
 }
 ```
 
-顶点和片元包装器里的 `float[8]`、`float[9]` 同步改成 `VertexIn::Count`、`Varying::Count`；打包、解包也改用字段常量，不要只替换数组总长。
+第 1 步现已落地：`src/llvm_shader.cpp` 的 `LlvmCommonShader::vertex()` 使用 `I::Count` 输入、`V::Count` 输出，以 `I::Position/Normal/Texcoord` 打包、`V::Position/Normal/Texcoord` 解包；同文件 `LlvmCommonShader::fragment()` 以 `V::Count` 分配并按 V 字段打包。若查阅旧版本，替换的是这两个函数里的布局数字，不是 `vec3` 的维度或 RGBA 的位移数。
 
-编译器 `StageCompiler::createBuiltins()` 中，例如：
+定位：`src/shader_language.cpp` 搜索 `void createBuiltins()`，在 `class StageCompiler` 内，不在头文件中。例如已落地的矩阵/相机字段写法：
 
 ```cpp
 variables_["mvp"] = {ValueKind::Mat4, {}, shader_abi::Uniform::Mvp};
@@ -241,7 +268,7 @@ variables_["cameraPosition"] = vectorFromPointer(
     uniforms_, shader_abi::Uniform::Camera, 3);
 ```
 
-其余字段照表替换。手写 IR 的 `loadFloat(builder, uniforms, 38 + component)` 也必须变成 `shader_abi::Uniform::DiffuseLight + component`。矩阵内部的 `row*4+column` 是行主序索引，不属于应删掉的布局魔法数字。
+同函数的其余 uniform 名称按 `specularLightDirection → Uniform::SpecularLight`、`diffuseLightDirection → Uniform::DiffuseLight`、`ambientLightColor → Uniform::Ambient` 对应；输入 in.position/normal/texcoord 按 stage 选择 VertexIn 或 Varying 的同名字段。`finishVertex()` 的三项 storeRequired 使用 Varying 字段。手写 IR 在 `src/llvm_support.cpp` 的 `buildCommonVertexFunction()` / `buildCommonFragmentFunction()` 中使用相同常量；例如 `38 + component` 已改成 `Uniform::DiffuseLight + component`。这些都是第 1 步已完成代码，不要重写回来。矩阵内部的 `row*4+column` 是行主序索引，不属于布局魔法数字。
 
 #### 1.2 在调用编译入口前检查版本
 
@@ -297,6 +324,8 @@ Native、内置 JIT、脚本 Common 的既有结果应与本步开始时一致�
 
 ## 2. 打通世界位置、法线和插值
 
+完成记录（2026-10-14）：保留你已写好的世界位置传递、插值和 `render_math.hpp`，补齐三条 Common 片元路径的法线约定及 JIT normalize 边界行为，移除 Native 中权重为零但仍会计算的旧高光分支。没有增加 model 变换、材质或 PBR 公式。Debug/Release 的渲染器及测试目标构建成功，两个配置均通过 `camera`、`varying`、`llvm_smoke`、`shader_abi` 四项 CTest。未做窗口截图或交互旋转相机验收；构建仍有原有编码、遮蔽和类型转换警告。
+
 ### 现在的状况
 
 `Commonv2f` 只有裁剪位置、法线和 UV。顶点 shader 把法线乘了 view 矩阵；Native 的 `cameraPosition - vec3(f.position)` 却把世界位置与裁剪位置相减。默认高光系数为零使这个问题不易看见。已有 `VaryingTraits` 统一处理裁剪边和透视插值，应该在这里扩展，而不是在光栅循环中再写一套。
@@ -309,7 +338,7 @@ Native、内置 JIT、脚本 Common 的既有结果应与本步开始时一致�
 
 #### 2.1 准备独立于 LLVM 的数学辅助函数
 
-完整新增文件：`include/render_math.hpp`。不改变原 `vec.hpp` 中 `operator*` 的含义。
+操作：在 `include/` 下新增 `render_math.hpp`，以下是完整文件，不放进别的类。若已经创建，逐项核对，不重复创建；不改变原 `vec.hpp` 中 `operator*` 的含义。
 
 ```cpp
 #pragma once
@@ -339,7 +368,15 @@ inline vec3 saturate3(vec3 v) {
 
 #### 2.2 替换 varying 与 Native 顶点输出
 
-`include/shader.hpp` 包含 `render_math.hpp`，替换结构与 `NativeCommonShader::vertex()`：
+这一小节需要改 **2 个文件、4 个位置**。下面四块不要连在一起粘贴，尤其 `vertex()` 必须放在 `NativeCommonShader` 类内。
+
+**2.2-A：添加 include。**打开 `include/shader.hpp`，搜索 `#include "texture.hpp"`，在它下一行新增（已有则保留一份）：
+
+```cpp
+#include "render_math.hpp"
+```
+
+**2.2-B：替换 varying 结构体。**仍在 `include/shader.hpp`，搜索 `struct Commonv2f {`。把从这行到对应 `};` 的整个结构体替换为下方代码。不要改它前面的 `Commona2v`；顶点输入仍然没有 `worldPosition`。
 
 ```cpp
 struct Commonv2f {
@@ -348,16 +385,32 @@ struct Commonv2f {
     vec2 texcoord;
     vec3 worldPosition;
 };
+```
 
+**2.2-C：替换 Native 类内的顶点函数。**仍在 `include/shader.hpp`，先搜索 `struct NativeCommonShader final`，然后在这个类内部找：
+
+```cpp
+Commonv2f vertex(const Commona2v& vertex) const override {
+    vec4 pos = mvp * vec4(vertex.position, 1.0f);
+    vec4 n = normalize(vp * vec4(vertex.normal, 0.0f));
+    return { pos, vec3(n), vertex.texcoord };
+}
+```
+
+把这一整个函数替换成下面的完整函数。保留前面的 `name()` 和后面的 `fragment()`；不要改顶部 `IShader` 的纯虚函数声明，也不要把函数贴到 `CommonShader` 或命名空间末尾。
+
+```cpp
 Commonv2f vertex(const Commona2v& a) const override {
     return {mvp * vec4(a.position, 1.0f),
             a.normal, a.texcoord, a.position};
 }
 ```
 
+返回的四项严格按 2.2-B 的成员顺序对应：clip position、world normal、UV、world position。最后的 `a.position` 暂时就是世界位置，因为当前 model 变换是单位矩阵。
+
 第 2 步不增加模型变换。将来加入 model 矩阵时，位置乘 model，法线乘 model 线性部分的逆转置，不能把这个扩展悄悄省略。
 
-`shader_abi.hpp` 改为 `Version=2`，只修改 varying 命名空间：
+**2.2-D：升级共享布局。**打开 `include/shader_abi.hpp`，搜索 `inline constexpr std::uint32_t Version = 1;`，只把值改为 `2`。再搜索 `namespace Varying {`，替换这一整个命名空间为：
 
 ```cpp
 namespace Varying {
@@ -366,9 +419,11 @@ inline constexpr int WorldPosition = 9, Count = 12;
 }
 ```
 
+保留外层 `namespace jyd::shader_abi`、整个 `VertexIn` 和整个 `Uniform` 不变。不要新增第二个 `Count`，也不要把 `Uniform::Count` 改成 12。做完后应是 Version=2、VertexIn::Count=8、Varying::Count=12、Uniform::Count=44。
+
 #### 2.3 完整替换两个插值函数
 
-位置：`VaryingTraits<Commonv2f>`。保留原 `clipPosition()`。
+文件：`include/shader.hpp`。搜索 `struct VaryingTraits<Commonv2f>`，在这个特化内部分别找到 `static Commonv2f interpolateEdge(`、`static Commonv2f interpolateFragment(`，各自用下面的同名完整函数替换。保留外层 `template<>`、结构体和原 `clipPosition()`；不要在 `Renderer` 内新增同名函数。代码参数名改成 a/b/v 不影响调用方。
 
 ```cpp
 static Commonv2f interpolateEdge(
@@ -398,43 +453,67 @@ static Commonv2f interpolateFragment(
 }
 ```
 
-法线在裁剪和插值过程中不反复归一化；在每个 fragment 入口调用 `safeNormalize`。不要改成仿射插值，也不要把 NDC 深度再做一次上述透视修正。`src/renderer.cpp` 已有分母检查，补上 `std::isfinite(denominator)`，继续在 `discard` 后才写深度。
+法线在裁剪和插值过程中不反复归一化；2.5 会统一片元入口的归一化。不要改成仿射插值，也不要把 NDC 深度再做一次上述透视修正。
+
+文件：`src/renderer.cpp`；函数：`Renderer::drawTriangle_byShader(...)`。搜索此函数内的 `if (std::abs(denominator) < 1e-8f)`，把完整的 if 块替换为：
+
+```cpp
+if (!std::isfinite(denominator) || std::abs(denominator) < 1e-8f) {
+    continue;
+}
+```
+
+它位于 `const float denominator = ...` 之后、`VaryingTraits<Commonv2f>::interpolateFragment(...)` 之前。保留已有 clip-w 防护和 `zbuf` 算法，不提前写深度；仍在 `shader.fragment(...)` 返回不丢弃之后写深度。
 
 #### 2.4 改完全部生产者与消费者
 
-`src/llvm_shader.cpp::vertex()` 解包时追加第四个成员：
+**2.4-A：宿主从 JIT 顶点输出读取世界位置。**文件 `src/llvm_shader.cpp`，搜索 `Commonv2f LlvmCommonShader::vertex(`。第 1 步后这里已经是循环解包，不再是旧版的 `return { ... }`。在这个函数的 `return result;` 前新增下面的循环，保留既有 position/normal/texcoord 循环和 `namespace V`：
 
 ```cpp
-namespace V = shader_abi::Varying;
-return {
-    vec4(shaderOutput[V::Position], shaderOutput[V::Position+1],
-         shaderOutput[V::Position+2], shaderOutput[V::Position+3]),
-    vec3(shaderOutput[V::Normal], shaderOutput[V::Normal+1], shaderOutput[V::Normal+2]),
-    vec2(shaderOutput[V::Texcoord], shaderOutput[V::Texcoord+1]),
-    vec3(shaderOutput[V::WorldPosition], shaderOutput[V::WorldPosition+1],
-         shaderOutput[V::WorldPosition+2])
-};
+for (int c = 0; c < 3; ++c) {
+    result.worldPosition[c] = shaderOutput[V::WorldPosition + c];
+}
 ```
 
-`LlvmCommonShader::fragment()` 的输入数组由原 9 个值变成 12 个值，最后追加 `input.worldPosition.x/y/z`。已有数组常量会自动变长，但自动补零不是正确传值，必须显式写入。
+**2.4-B：宿主向 JIT 片元输入写世界位置。**同文件，搜索 `bool LlvmCommonShader::fragment(`。在已有 UV 打包循环之后、`int discard = 0;` 之前，插入：
 
-在 `StageCompiler::createBuiltins()` 中仅 fragment 阶段增加输入；在 `finishVertex()` 中强制输出它：
+```cpp
+for (int c = 0; c < 3; ++c) {
+    shaderInput[V::WorldPosition + c] = input.worldPosition[c];
+}
+```
+
+`float shaderInput[V::Count]{}` 会自动变成 12 个元素，但不会自动填世界位置，这就是此循环的作用。本步保留 `Color&`、packed uint32 返回值、空纹理逻辑和原片元函数参数个数，浮点 ABI 要等第 5 步。
+
+**2.4-C：脚本编译器登记片元输入。**文件 `src/shader_language.cpp`，搜索 `void createBuiltins()`，所属 `StageCompiler` 类。在现有 `variables_["in.texcoord"] = ...;` 整条赋值之后、该函数结束大括号之前插入：
 
 ```cpp
 if (stage_ == Stage::Fragment) {
     variables_["in.worldPosition"] = vectorFromPointer(
         input_, shader_abi::Varying::WorldPosition, 3);
 }
-// finishVertex() 的目标实现：
-return storeRequired("position", ValueKind::Vec4, shader_abi::Varying::Position) &&
-       storeRequired("normal", ValueKind::Vec3, shader_abi::Varying::Normal) &&
-       storeRequired("texcoord", ValueKind::Vec2, shader_abi::Varying::Texcoord) &&
-       storeRequired("worldPosition", ValueKind::Vec3,
-                     shader_abi::Varying::WorldPosition) &&
-       (builder_.CreateRetVoid(), true);
 ```
 
-手写 `buildCommonVertexFunction()` 保留 mvp 变换，删除 view 变换法线的整段计算，改为把输入 normal 的三个分量直接写到输出 normal；同时将输入 position 的三个分量写到 `WorldPosition`：
+**2.4-D：脚本编译器强制写出第四个 varying。**仍在 `src/shader_language.cpp` 的 `StageCompiler` 类内，搜索 `bool finishVertex()`，完整替换为：
+
+```cpp
+bool finishVertex() {
+    namespace V = shader_abi::Varying;
+    return storeRequired("position", ValueKind::Vec4, V::Position) &&
+           storeRequired("normal", ValueKind::Vec3, V::Normal) &&
+           storeRequired("texcoord", ValueKind::Vec2, V::Texcoord) &&
+           storeRequired("worldPosition", ValueKind::Vec3, V::WorldPosition) &&
+           (builder_.CreateRetVoid(), true);
+}
+```
+
+2.4-C 和 2.4-D 是**两个不同函数中的改动**，不能把两段代码都贴进 createBuiltins。
+
+**2.4-E：内置手写 IR 的顶点输出。**文件 `src/llvm_support.cpp`，搜索 `void buildCommonVertexFunction(`，只在这个函数内操作：
+
+1. 删除 `llvm::Value* normal[4] = { ... };` 这个局部数组声明，其他局部变量和 MVP 位置计算循环保留。
+2. 找到 `llvm::Value* transformedNormal[3]{};`。从这一行开始，删除后面 lengthSquared 累加、View 乘法、sqrt 和写 normal 的循环，直到 UV 的 `storeFloat(builder, output, V::Texcoord, ...);` **之前**为止。保留 UV 的两次写入和末尾 `builder.CreateRetVoid()`。
+3. 在删除的这一段位置插入以下循环：
 
 ```cpp
 for (int c = 0; c < 3; ++c) {
@@ -445,7 +524,7 @@ for (int c = 0; c < 3; ++c) {
 }
 ```
 
-两个现有脚本 `Common` 和 `Unlit` 的 vertex 都改成：
+**2.4-F：两个磁盘 shader。**分别打开 `shaders/common.jydshader` 和 `shaders/unlit.jydshader`，搜索 `vertex {`，只把它及配对 `}` 中的整个 vertex 块替换为下面内容。保留最外层 `shader 名称 { ... }` 和后面的 fragment 块；Common 的 fragment 在 2.5-B 再改。
 
 ```text
 vertex {
@@ -460,17 +539,220 @@ vertex {
 
 #### 2.5 统一旧 Common 的光照约定
 
-在 Native 中使用 `N=safeNormalize(f.normal)`，观察方向改成 `safeNormalize(cameraPosition-f.worldPosition)`；所有 `-f.normal` 改成明确的外向法线 `N`。`DiffuseLightDirection` 与 `SpecularLightDirection` 暂时保留旧字段名，但含义统一为“从表面指向光源”，在世界空间定义。
+本节仍使用字节颜色和旧 Common 漫反射，不提前使用第 5 步的 `LinearColor`。`DiffuseLightDirection` 暂保留旧名字，但含义变成世界空间中“从表面指向光源”的方向。
 
-为了保留旧漫反射的大致照明方向，`Renderer::DiffuseLightDirection()` 默认改为 `(0,0,1)`；脚本用 `dot(diffuseLightDirection,normalize(in.normal))`，手写 IR 删除法线上的 `FNeg` 并对片元法线做安全归一化。第 4 步会把归一化阈值实现统一到与 Native 相同。
+**2.5-A：默认方向光。**文件 `include/renderer.hpp`，在 `class Renderer` 中搜索 `inline vec3 DiffuseLightDirection()`，只替换这一整个方法为：
 
-默认 Common 高光仍为零，不在本步引入新高光模型。若手动开启旧高光，必须同时使用修正后的世界位置与世界法线。
+```cpp
+inline vec3 DiffuseLightDirection() const { return vec3(0.0f, 0.0f, 1.0f); }
+```
+
+**2.5-B：Native 与脚本的片元算法。**文件 `include/shader.hpp`，在 `struct NativeCommonShader final` 内搜索 `bool fragment(const Commonv2f& f, Color& color) const override`，完整替换该函数（不要替换 `IShader` 中的虚函数声明）：
+
+```cpp
+bool fragment(const Commonv2f& f, Color& color) const override {
+    if (texture == nullptr) {
+        color = {255, 0, 255, 255};
+        return false;
+    }
+    const Color texel = texture->sampleNearest(f.texcoord);
+    const vec3 n = safeNormalize(f.normal);
+    const float diffuse = std::clamp(n * DiffuseLightDirection, 0.0f, 1.0f);
+    const float lighting = diffuse * 0.8f + 0.2f;
+    color = {
+        static_cast<std::uint8_t>(texel.r * lighting),
+        static_cast<std::uint8_t>(texel.g * lighting),
+        static_cast<std::uint8_t>(texel.b * lighting), texel.a
+    };
+    return false;
+}
+```
+
+这里删除了旧版“仍然计算、最终乘零”的高光分支，保留原本有效的漫反射行为，避免无效观察方向产生 NaN。世界位置已通过 varying 传递，但此 Common 还没有使用它计算高光；第 7 步 PBR 才使用 `safeNormalize(cameraPosition - f.worldPosition)`，不再用 clip position。
+
+文件 `shaders/common.jydshader`，将 `fragment { ... }` 整块替换为以下代码。`shaders/unlit.jydshader` 的 fragment 原样保留。这里还没有 `.rgb` 和 `vec4(vec3,float)`，不要提前用第 4 步语法：
+
+```text
+fragment {
+    let texel = sample(in.texcoord);
+    let n = normalize(in.normal);
+    let diffuse = clamp(dot(diffuseLightDirection, n), 0.0, 1.0);
+    color = texel * (diffuse * 0.8 + 0.2);
+}
+```
+
+此时脚本仍沿用历史行为让 alpha 也乘 lighting，Native/内置 IR 保留原 alpha；本步按不透明场景验证。第 5 步再统一显式保留 alpha，不能据此提前宣称已支持透明混合。
+
+**2.5-C：内置手写 IR 的法线归一化。**文件 `src/llvm_support.cpp`，文件顶部 include 区新增 `#include <limits>`。搜索 `void buildCommonFragmentFunction(`，在此函数内，从 `llvm::Value* diffuse = ...` 开始，到 `diffuse = clampFloat(builder, diffuse, 0.0f, 1.0f);` 这一整条语句结束，替换成下方片段。保留前面的 texture sample 和后面的 `llvm::Value* lighting = ...`、字节打包、返回值逻辑：
+
+```cpp
+auto c = [&](float x) -> llvm::Value* {
+    return llvm::ConstantFP::get(builder.getFloatTy(), x);
+};
+llvm::Value* n[3];
+llvm::Value* l2 = c(0.0f);
+for (int i = 0; i < 3; ++i) {
+    n[i] = loadFloat(builder, input, V::Normal + i);
+    l2 = builder.CreateFAdd(l2, builder.CreateFMul(n[i], n[i]));
+}
+auto* valid = builder.CreateAnd(
+    builder.CreateFCmpOGT(l2, c(1e-16f)),
+    builder.CreateFCmpOLE(l2, c(std::numeric_limits<float>::max())));
+auto* length = builder.CreateUnaryIntrinsic(llvm::Intrinsic::sqrt,
+    builder.CreateSelect(valid, l2, c(1.0f)));
+llvm::Value* diffuse = c(0.0f);
+for (int i = 0; i < 3; ++i) {
+    auto* ni = builder.CreateSelect(valid, builder.CreateFDiv(n[i], length), c(0.0f));
+    diffuse = builder.CreateFAdd(diffuse, builder.CreateFMul(ni,
+        loadFloat(builder, uniforms, U::DiffuseLight + i)));
+}
+diffuse = clampFloat(builder, diffuse, 0.0f, 1.0f);
+```
+
+不要保留旧的 `CreateFNeg(...)`，新代码已经按外法线约定计算。
+
+**2.5-D：脚本 normalize 在本步就对齐。**文件 `src/shader_language.cpp` 顶部新增 `#include <limits>`。在 `class StageCompiler` 中搜索 `CodeValue normalize(const std::vector<CodeValue>& arguments)`，用下面的完整函数替换。原 `emitCall()` 中 `return normalize(arguments);` 保留不变。不需要先实现第 4 步的成员语法或 max/mix。
+
+```cpp
+CodeValue normalize(const std::vector<CodeValue>& arguments) {
+    if (arguments.size() != 1 || vectorSize(arguments[0].kind) == 0) {
+        fail("normalize requires one vector argument");
+        return {};
+    }
+    const CodeValue& value = arguments[0];
+    llvm::Value* l2 = scalar(0.0f).components[0];
+    for (auto* c : value.components)
+        l2 = builder_.CreateFAdd(l2, builder_.CreateFMul(c, c));
+    auto* valid = builder_.CreateAnd(
+        builder_.CreateFCmpOGT(l2, scalar(1e-16f).components[0]),
+        builder_.CreateFCmpOLE(l2,
+            scalar(std::numeric_limits<float>::max()).components[0]));
+    auto* length = builder_.CreateUnaryIntrinsic(llvm::Intrinsic::sqrt,
+        builder_.CreateSelect(valid, l2, scalar(1.0f).components[0]));
+    CodeValue out;
+    out.kind = value.kind;
+    for (auto* c : value.components) {
+        out.components.push_back(builder_.CreateSelect(valid,
+            builder_.CreateFDiv(c, length), scalar(0.0f).components[0]));
+    }
+    return out;
+}
+```
+
+这样三条片元路径都在长度平方不大于 `1e-16` 或非有限时输出零法线。旧版把此修改留到 4.3，会使第 2 步结束时两端行为不同；现已前移到这里，4.3 只做复核。
+
+#### 2.6 迁移现有测试，不沿用第 1 步的旧预期
+
+文件：`tools/llvm_smoke.cpp`。本文件已由第 1 步建立，不要重新创建，也不要直接粘贴第 8 步的浮点 ABI 版本。
+
+**A. 修改 `testRowMajorMatrix()`。**搜索这一个函数，保留矩阵、调用和位置/UV 检查，做下面三项定点替换：
+
+1. 第一次 `shader.vertex(...)` 后，原法线预期 `2.0f/7.0f`、`3.0f/7.0f`、`6.0f/7.0f` 改为 `2.0f`、`3.0f`、`6.0f`。顶点不再归一化。
+2. 第二次 `shader.vertex(...)` 后，删除 `const float length = std::sqrt(701.0f);` 和旧的 `"row-major View ABI"` 检查，改用下方代码。保留 View 矩阵赋值和第二次调用，测试的是“改变 View 不应改变世界法线”，而不是删除 View 测试。
+
+```cpp
+check(near(output[V::Normal + 0], 2.0f) &&
+      near(output[V::Normal + 1], 3.0f) &&
+      near(output[V::Normal + 2], 6.0f), "world normal must ignore View");
+```
+
+3. 在两次 `shader.vertex(...)` 的结果检查处都增加：
+
+```cpp
+check(near(output[V::WorldPosition + 0], 1.0f) &&
+      near(output[V::WorldPosition + 1], 2.0f) &&
+      near(output[V::WorldPosition + 2], 3.0f), "world position ABI");
+```
+
+**B. 修改 `testUniformFields()` 的诊断脚本字符串。**找到字符串 `"; texcoord = in.texcoord; } fragment { color = vec4(1,1,1,1); } }"`，整条字符串替换为：
+
+```cpp
+"; texcoord = in.texcoord; worldPosition = in.position; } fragment { color = vec4(1,1,1,1); } }";
+```
+
+保留前面拼接字段名的语句。否则 finishVertex 要求第四个输出后，测试自己的 shader 会报缺少 worldPosition。
+
+**C. 修改 `runSmokeTests()`。**搜索 `uniforms[U::DiffuseLight + 2] = -1.0f;`，改成 `= 1.0f;`。在 identity 用例的 `const bool vertexMatches = ...` 中，为现有末项去掉分号，续上以下条件后再以分号结束：
+
+```cpp
+&& near(varying[V::WorldPosition + 0], 1.0f)
+&& near(varying[V::WorldPosition + 1], 2.0f)
+&& near(varying[V::WorldPosition + 2], 3.0f);
+```
+
+数组已经使用 Count 常量，会自动扩容，无需再写 `[12]`。脚本和内置结果的 `for (int c=0; c<V::Count; ...)` 比较也会自动覆盖新增分量。
+
+**D. 增加插值测试。**完整新增文件 `tools/varying_tests.cpp`：
+
+```cpp
+#include "shader.hpp"
+#include "test_support.hpp"
+#include <iostream>
+
+int main() {
+    try {
+        using namespace jyd;
+        Commonv2f v[3]{};
+        v[0].position = vec4(0,0,0,1);
+        v[1].position = vec4(0,0,0,2);
+        v[2].position = vec4(0,0,0,4);
+        v[0].worldPosition = vec3(0,0,0);
+        v[1].worldPosition = vec3(2,0,0);
+        v[2].worldPosition = vec3(0,4,0);
+        for (auto& x : v) x.normal = vec3(0,0,2);
+        const auto f = VaryingTraits<Commonv2f>::interpolateFragment(
+            v, 1.0f/3, 1.0f/3, 1.0f/3);
+        check(near(f.worldPosition.x, 4.0f/7) &&
+              near(f.worldPosition.y, 4.0f/7), "perspective world position");
+        check(near(f.normal.z, 2), "do not normalize during interpolation");
+        const auto edge = VaryingTraits<Commonv2f>::interpolateEdge(v[0], v[1], 0.25f);
+        check(near(edge.worldPosition.x, 0.5f) &&
+              near(edge.position.w, 1.25f), "clip edge interpolation");
+        std::cout << "varying tests passed\n";
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << e.what() << '\n';
+        return 1;
+    }
+}
+```
+
+根 `CMakeLists.txt` 搜索已有 `add_test(NAME camera COMMAND jydCameraTests)`，在该行之后、所属 `if(BUILD_TESTING)` 的 `endif()` 之前插入以下片段。不再写第二次 `include(CTest)`：
+
+```cmake
+add_executable(jydVaryingTests tools/varying_tests.cpp)
+target_include_directories(jydVaryingTests PRIVATE include tools)
+if(MSVC)
+    target_compile_options(jydVaryingTests PRIVATE /utf-8)
+endif()
+add_test(NAME varying COMMAND jydVaryingTests)
+```
+
+**E. 已落地的扩展测试（无需重新创建）。**实际 `tools/varying_tests.cpp` 在上面的最小示例之外，还检查 UV 和不等长、不同方向法线的插值。`tools/llvm_smoke.cpp` 的 `testNormalContract()` 检查脚本 normalize 与 Native 辅助函数的一致性，以及内置 IR/脚本片元对非单位、零、极小、NaN、Inf、长度平方溢出法线的处理；`testRequiredWorldPosition()` 验证遗漏输出会明确报错。
+
+`tools/shader_abi_tests.cpp::testWrappers()` 经过真正的 `NativeCommonShader` / `LlvmCommonShader`，检查 12 个顶点输出分量、改变 View 后世界属性不变、三后端 Common RGB、Unlit 纹理回调和空纹理回退。`tools/fixtures/world_position.jydshader` 把片元的世界位置映射到 RGB；输入 `(0.125,0.375,0.625)` 在当前字节 ABI 下应得到 `(31,95,159)`，可捕获包装器漏打包的问题。白色测试纹理由用例在独立临时目录生成并清理，不依赖个人模型目录。
+
+根 `CMakeLists.txt` 现已注册 `llvm_smoke` 和 `shader_abi`，两者的工作目录均设为仓库根目录。`jydShaderAbiTests` 链接编译器 DLL，并编译现有 `src/llvm_shader.cpp`、`src/texture.cpp`、`src/stb_image.cpp`，不启动窗口。后续保留这些目标，不要在第 8 步重复注册 smoke。
 
 ### 验证与本步结束点
 
 用 clip w 为 1、2、4，屏幕重心权重各为 1/3 的三角形测试。设三个世界位置为 `(0,0,0)`、`(2,0,0)`、`(0,4,0)`，预期插值位置为 `(4/7,4/7,0)`，不是 `(2/3,4/3,0)`。旋转相机时，世界法线可视化应保持模型本身的颜色，而不是跟着视图旋转改变。
 
 Native、内置 IR、脚本 vertex 对相同输入须给出相同的 12 个分量。此步结束时 `Version=2`、varying=12、uniform=44。
+
+从仓库根目录执行（不是在 tools 目录里运行，smoke 要读取 `shaders/common.jydshader`）：
+
+```powershell
+cmake --preset vs2022-x64 -DBUILD_TESTING=ON
+cmake --build --preset vs2022-x64-debug
+ctest --test-dir build/vs2022-x64 -C Debug --output-on-failure
+.\build\vs2022-x64\Debug\jydLlvmSmoke.exe
+cmake --build --preset vs2022-x64-release
+ctest --test-dir build/vs2022-x64 -C Release --output-on-failure
+.\build\vs2022-x64\Release\jydLlvmSmoke.exe
+```
+
+`camera`、`varying`、`llvm_smoke`、`shader_abi` 都应通过；上面的单独 smoke 命令用于查看详细输出，CTest 已包含它。若脚本提示缺少 worldPosition，先检查两个磁盘 shader 和 `testUniformFields()` 的内嵌字符串；若法线测试仍期望除以 7，说明漏改了 2.6-A。
 
 ## 3. 每模型材质和方向光参数
 
@@ -528,20 +810,20 @@ inline DirectionalLight sanitizeLight(DirectionalLight l) {
 
 #### 3.2 给模型和 shader 各放一份参数
 
-在 `src/main.cpp::RenderItem` 中追加：
+文件 `src/main.cpp`，搜索匿名命名空间内的 `struct RenderItem`。在 `jyd::Texture texture;` 之后、构造函数 `RenderItem(` 之前插入下面字段，保留 model/texture 及构造函数：
 
 ```cpp
 jyd::MaterialParameters material{};
 ```
 
-在 `CommonShader` 中追加：
+文件 `include/shader.hpp`，搜索 `struct CommonShader :`，在现有 `vec3 AmbientLightColor;` 之后、`virtual const char* name()` 之前插入：
 
 ```cpp
 MaterialParameters material{};
 DirectionalLight light{};
 ```
 
-两个文件包含 `material.hpp`。在每次调用 `renderer.Pipeline()` **之前**赋值：
+这两个文件各在顶部 include 区加入 `#include "material.hpp"`。接着在 `src/main.cpp` 的 `runRenderer(...)` 内搜索 `for (const RenderItem& item : scene)`，把循环内现有的 `shader->texture = ...` 和 `totalTriangles += renderer.Pipeline(...)` 两条语句整体替换为下面四条（不要保留第二次 Pipeline 调用）：
 
 ```cpp
 shader->texture = &item.texture;
@@ -554,7 +836,7 @@ totalTriangles += renderer.Pipeline(item.model, *shader, mod);
 
 #### 3.3 扩展 uniform，保持旧偏移稳定
 
-`shader_abi.hpp` 升级为 `Version=3`，Uniform 中保留原字段，追加：
+文件 `include/shader_abi.hpp`：把唯一的 Version 从 2 改为 3。在 `namespace Uniform` 内，把 `inline constexpr int Count = 44;` 这一行替换为下方整块；它前面的旧字段不变，VertexIn/Varying 不变：
 
 ```cpp
 inline constexpr int BaseColor = 44;      // 44..46
@@ -565,7 +847,7 @@ inline constexpr int LightRadiance = 52;  // 52..54
 inline constexpr int Count = 55; // 替换旧 Count，不是第二次定义
 ```
 
-在 `LlvmCommonShader::prepare()` 末尾追加：
+文件 `src/llvm_shader.cpp`：搜索 `void LlvmCommonShader::prepare()`，在 `writeVector(... U::Ambient, AmbientLightColor);` 之后、函数结束 `}` 之前插入下方代码。沿用此函数内已有 `namespace U = shader_abi::Uniform;`，不要重复声明：
 
 ```cpp
 writeVector(uniforms_.data() + U::BaseColor, material.baseColorFactor);
@@ -575,7 +857,7 @@ writeVector(uniforms_.data() + U::LightDirection, light.surfaceToLightDirection)
 writeVector(uniforms_.data() + U::LightRadiance, light.lightRadiance);
 ```
 
-编译器 `createBuiltins()` 追加，不要使用 `vectorFromPointer(...,1)`，它的 `vectorKind(1)` 当前返回 Invalid：
+文件 `src/shader_language.cpp`：搜索 StageCompiler 的 `void createBuiltins()`。在 `variables_["ambientLightColor"] = ...;` 的赋值语句之后、`namespace I = ...` 之前插入下方代码。这个位置仍在函数体内，执行于两个 shader stage。不要使用 `vectorFromPointer(...,1)`，它的 `vectorKind(1)` 当前返回 Invalid：
 
 ```cpp
 namespace U = shader_abi::Uniform;
@@ -593,7 +875,9 @@ variables_["lightRadiance"] = vectorFromPointer(uniforms_, U::LightRadiance, 3);
 
 临时用 `color=vec4(metallic,roughness,0.0,1.0)` 显示参数，两个模型设不同值后交换绘制顺序，参数仍应随模型走。此 shader 只验证数据流，尚不是 PBR。
 
-smoke 的 uniform 长度改为 55，给新增字段填值。检查 NaN、负光强、零光方向会被入口拒绝；金属度与粗糙度按约定限制。此时 `Version=3`、varying=12、uniform=55。
+`tools/llvm_smoke.cpp` 已用 `U::Count` 分配数组，因此扩容到 55 是自动发生的，不要再把数组写死成 `[55]`。新增字段读写的检查应放在 `testUniformFields()`：它的 Field 数组可增加三个 vec3（baseColorFactor、surfaceToLightDirection、lightRadiance）；metallic/roughness 是标量，另编译诊断 shader 令 `normal = vec3(metallic,roughness,0)` 后检查输出 normal.x/y，不能直接塞入要求 vec3 的原 Field 探针。两种诊断 shader 都保留第 2 步新增的 worldPosition 输出。
+
+检查 NaN、负光强、零光方向会被 `sanitizeMaterial` / `sanitizeLight` 拒绝；金属度与粗糙度按约定限制。此时 `Version=3`、varying=12、uniform=55。
 
 ## 第 4 步：让 shader 语言能表达完整的 PBR
 
@@ -601,7 +885,7 @@ smoke 的 uniform 长度改为 55，给新增字段填值。检查 NaN、负光�
 
 `src/shader_language.cpp` 已支持算术、`transform_point`、`transform_direction`、`normalize`、`dot`、`clamp`、`sample` 和向量构造，但还没有 `max`、`mix`、`sqrt` 与真正的成员访问。现在 `in.normal` 能用，是因为词法分析器把含点的整串文本当成一个名字；它无法解析 `sample(in.texcoord).rgb`。
 
-另外，当前 `normalize` 把长度平方限制为一个小正数。这会使极小向量变成“很短但不为零”的向量，和第 2 步的 C++ 约定不一致。
+`normalize` 的边界行为已经在修订后的 2.5-D 对齐；本步不再次添加同名函数。如果之前使用旧版手册，按 4.3 的提示补做。
 
 ### 目标
 
@@ -611,7 +895,9 @@ smoke 的 uniform 长度改为 55，给新增字段填值。检查 NaN、负光�
 
 #### 4.1 把点号变成语法，而不是名字的一部分
 
-在 `TokenKind` 增加 `Dot`、`Invalid`。标识符扫描条件改成下面这样，保留后面的数字扫描逻辑，因此 `.5` 仍是数值：
+本节所有 C++ 修改均在 **`src/shader_language.cpp`**；不用编辑 `src/shader_language.hpp`。先搜索文件前部的 `enum class TokenKind`，在 `Slash` 后加逗号，并追加 `Dot, Invalid` 两个枚举项。
+
+再搜索 `class Lexer` → `Token next()` → `current != '_' && current != '.'`，把包含此条件的完整 if 块替换为下方代码。保留后面的数字扫描逻辑，因此 `.5` 仍是数值：
 
 ```cpp
 if (!std::isalnum(static_cast<unsigned char>(current)) && current != '_') {
@@ -619,9 +905,9 @@ if (!std::isalnum(static_cast<unsigned char>(current)) && current != '_') {
 }
 ```
 
-词法 `switch` 增加 `case '.': token.kind = TokenKind::Dot; break;`，`default` 设置 `token.kind = TokenKind::Invalid`。不能把未知字符当作文件结束，否则末尾的非法字符可能被悄悄忽略。
+仍在 `Lexer::next()` 内，找到 `switch (character)`：在 `case '/': ...` 后新增 `case '.': token.kind = TokenKind::Dot; break;`；在该 switch 的 `default:` 后、`token.text.assign(1, character);` 前插入 `token.kind = TokenKind::Invalid;`。不能把未知字符当作文件结束，否则末尾的非法字符可能被悄悄忽略。
 
-`Expression::Kind` 增加 `Member`。在 `Parser` 内新增以下完整成员函数，并把 `parseUnary()` 最后的 `return parsePrimary();` 改成 `return parsePostfix();`。一元负号原来的递归分支保留，因此 `-v.x` 表示 `-(v.x)`。
+搜索 `struct Expression`，把其 Kind 枚举中的 `Call` 后追加 `, Member`。接着搜索 `class Parser`，在它的 `private:` 区域、现有 `parsePrimary()` 定义之前插入下面这个完整新方法；不要插到 Lexer 或 StageCompiler。再在 `parseUnary()` 末尾把唯一的 `return parsePrimary();` 改成 `return parsePostfix();`，不要全文件替换，否则新方法会递归调用自己。一元负号原来的递归分支保留，因此 `-v.x` 表示 `-(v.x)`。
 
 ```cpp
 std::unique_ptr<Expression> parsePostfix() {
@@ -644,7 +930,7 @@ std::unique_ptr<Expression> parsePostfix() {
 }
 ```
 
-在 `StageCompiler::emit()` 的分派中加入 `case Expression::Kind::Member: return emitMember(expression);`；下面是新增的完整成员函数。`in` 是保留的输入名字空间，不是一个普通向量。
+仍在 `src/shader_language.cpp`，但以下代码属于 **StageCompiler**，不是上面的 Parser。搜索 `CodeValue emit(const Expression& expression)`，在它的 `switch (expression.kind)` 中、Call 分支之后增加 `case Expression::Kind::Member: return emitMember(expression);`。然后在 `emit()` 结束大括号之后、下一个成员函数之前插入下方完整 `emitMember()` 方法；确保仍在 StageCompiler 的 `private:` 区域。`in` 是保留的输入名字空间，不是一个普通向量。
 
 ```cpp
 CodeValue emitMember(const Expression& expression) {
@@ -684,7 +970,7 @@ CodeValue emitMember(const Expression& expression) {
 
 #### 4.2 增加三个内建函数
 
-在 `StageCompiler` 增加下面三个成员函数。它们使用现有 `scalar()`、`vectorSize()`、`fail()` 和 `builder_`，不是需要另找实现的伪接口。
+文件 `src/shader_language.cpp`，搜索 StageCompiler 的 `CodeValue emitCall(`。在这个函数的定义**之前**插入下面三个完整成员函数，不要贴入 emitCall 函数体。它们使用现有 `scalar()`、`vectorSize()`、`fail()` 和 `builder_`，不是需要另找实现的伪接口。
 
 ```cpp
 CodeValue emitMax(const CodeValue& a, const CodeValue& b) {
@@ -739,7 +1025,7 @@ CodeValue emitSqrt(const CodeValue& value) {
 }
 ```
 
-在 `emitCall()` 完成参数 `arguments` 的求值后、原有函数分派之前插入以下分派：
+同文件同类，现在进入 `emitCall()` 函数体，搜索其 `if (expression.text == "transform_point")`。在这一行之前插入以下分派；这里前面的 arguments 求值循环已经结束。原 transform/normalize/dot/clamp/sample/vecN 分派全部保留：
 
 ```cpp
 if (expression.text == "max" && arguments.size() == 2)
@@ -759,37 +1045,13 @@ if (expression.text == "vec4" && arguments.size() == 2 &&
 
 构造函数特例必须放在原来“vec4 要求 4 个参数”的检查之前。参数数量错误仍走诊断，不能访问越界参数。这里 `mix` 不会自动限制权重；材质入口已负责把 metallic 限制在 [0,1]。
 
-#### 4.3 对齐 normalize 的边界行为
+#### 4.3 复核 normalize，不重复新增实现
 
-新增 `<limits>`。把原 `normalize()` 的长度限制和除法替换为下面的逻辑。新增这个完整成员函数，然后将原 `normalize(arguments)` 函数中参数数量/类型检查之后的计算替换为 `return emitSafeNormalize(arguments[0]);`，保留原来的参数检查。
+此改动已前移到 **2.5-D**，使第 2 步完成时 Native/内置 IR/脚本的归一化就一致。本节不再新增第二个 `normalize` 或 `emitSafeNormalize`。
 
-```cpp
-CodeValue emitSafeNormalize(const CodeValue& value) {
-    if (vectorSize(value.kind) == 0) {
-        fail("normalize expects a vector"); return {};
-    }
-    auto* l2 = scalar(0.0f).components[0];
-    for (auto* c : value.components)
-        l2 = builder_.CreateFAdd(l2, builder_.CreateFMul(c, c));
-    auto* valid = builder_.CreateAnd(
-        builder_.CreateFCmpOGT(l2, scalar(1e-16f).components[0]),
-        builder_.CreateFCmpOLE(l2,
-            scalar(std::numeric_limits<float>::max()).components[0]));
-    auto* safeL2 = builder_.CreateSelect(valid, l2, scalar(1.0f).components[0]);
-    auto* sqrtFn = llvm::Intrinsic::getDeclaration(
-        &module_, llvm::Intrinsic::sqrt, {builder_.getFloatTy()});
-    auto* length = builder_.CreateCall(sqrtFn, {safeL2});
-    CodeValue out;
-    out.kind = value.kind;
-    for (auto* c : value.components) {
-        out.components.push_back(builder_.CreateSelect(valid,
-            builder_.CreateFDiv(c, length), scalar(0.0f).components[0]));
-    }
-    return out;
-}
-```
+定位：`src/shader_language.cpp` → `class StageCompiler` → `CodeValue normalize(const std::vector<CodeValue>& arguments)`。确认它包含 `CreateFCmpOGT` 的 `1e-16f` 下限、`CreateFCmpOLE` 的有限值上限，以及无效时选择零分量；`emitCall()` 中仍调用 `normalize(arguments)`。如果按旧版手册跳过了这项，现在用 2.5-D 的完整函数替换。
 
-这些是 C++ 中的浮点字面量，可以写 `1e-16f`；当前 shader 词法还不支持科学计数法，shader 文件里的 epsilon 要写成 `0.000001`。先不要给 IR 开 `fast-math`，否则非有限数检查的语义可能改变。
+C++ 字面量可写 `1e-16f`；shader 文件的词法目前不支持科学计数法，因此用 `0.000001` 等十进制形式。不要开启 `fast-math` 改变非有限数判断的含义。
 
 ### 验证与本步结束点
 
@@ -868,7 +1130,7 @@ inline LinearColor sampleBaseColor(const Texture* texture, vec2 uv) noexcept {
 
 #### 5.2 一次性迁移浮点 ABI
 
-将 `shader_abi::Version` 改为 **4**，缓冲区长度仍为 varying=12、uniform=55。在 `include/llvm_support.hpp` 中替换两个函数指针类型：
+文件 `include/shader_abi.hpp`：把 Version 从 3 改为 **4**，其他常量不动（varying=12、uniform=55）。文件 `include/llvm_support.hpp`：分别搜索 `using JydTextureSampleFunction` 和 `using JydShaderFragmentFunction`，将各自从 using 到分号的整条声明替换为下面两条。中间的 `JydShaderVertexFunction` 原样保留：
 
 ```cpp
 using JydTextureSampleFunction = void (*)(
@@ -881,7 +1143,7 @@ using JydShaderFragmentFunction = void (*)(
 
 不要只改 typedef：生成的 LLVM 函数类型、间接调用类型、宿主调用、smoke 回调必须同一个提交修改。四个 float 由调用方提供，不跨 DLL 返回 C++ 对象。保留 `JydShaderProgram` 的字段布局，先检查版本再编译/调用。
 
-`src/llvm_shader.cpp` 中替换原采样回调，新增 `texture_sampling.hpp` include：
+文件 `src/llvm_shader.cpp`：顶部 include 区新增 `#include "texture_sampling.hpp"`；在 `namespace jyd { namespace {` 内搜索 `std::uint32_t sampleTexture(`，将此完整函数替换为下面的 void 回调，不是修改 `Texture::sampleNearest()`：
 
 ```cpp
 void sampleTexture(const void* texture, float u, float v, float* out) noexcept {
@@ -891,7 +1153,12 @@ void sampleTexture(const void* texture, float u, float v, float* out) noexcept {
 }
 ```
 
-`IShader::fragment`、Native 和 LLVM 的声明/定义统一改为 `LinearColor&`。包含 `color_space.hpp`。`LlvmCommonShader::fragment` 完整替换为：
+接下来必须改四处签名，声明与定义要一致：
+
+- `include/shader.hpp` 顶部加入 `#include "color_space.hpp"` 和 `#include "texture_sampling.hpp"`；`IShader` 内 `virtual bool fragment(const v2f& v, Color& color) const = 0;` 只把 Color 改成 LinearColor。
+- 同文件 `NativeCommonShader::fragment` 整个方法采用 5.4 的完整替换版本，不只改参数名。
+- `include/llvm_shader.hpp` 搜索 `bool fragment(const Commonv2f& input, Color& color) const override;`，只把 Color 改为 LinearColor；该类型已通过 shader.hpp 可见。
+- `src/llvm_shader.cpp` 搜索 `bool LlvmCommonShader::fragment(`，把函数签名及整个函数体替换为下面代码；不要新增重载，也不修改 vertex 函数。
 
 ```cpp
 bool LlvmCommonShader::fragment(const Commonv2f& f, LinearColor& color) const {
@@ -916,7 +1183,11 @@ bool LlvmCommonShader::fragment(const Commonv2f& f, LinearColor& color) const {
 
 #### 5.3 改脚本编译器的输入输出
 
-`StageCompiler::createFunction()` 的 fragment 分支改为 `void(ptr,ptr,ptr,ptr,ptr,ptr)`；vertex 分支不动。创建 basic block 后，fragment 参数读取改成：
+本节三个方法都在 **`src/shader_language.cpp` → `class StageCompiler` 的 private 区域**。
+
+搜索 `void createFunction()`。这个函数里有两个 `if (stage_ == Stage::Vertex)`：第一个负责创建 FunctionType，第二个负责分配参数，**两个 else 都要改**，两个 vertex 分支都保留。
+
+先在第二个 if 的 else 内，把从 `texture_ = argument++;` 到 `discard_ = argument;` 的三行替换为下面整段；这里已创建 basic block 并设置插入点，可以发出 Store：
 
 ```cpp
 texture_ = argument++;
@@ -928,7 +1199,7 @@ for (int i = 0; i < 4; ++i)
     storeFloat(output_, i, scalar(i == 3 ? 1.0f : 0.0f).components[0]);
 ```
 
-生成函数类型使用：
+再回到第一个 if 的 else 内：把其 `llvm::FunctionType* type = ...;` 整条声明替换为下面代码，保留后面的 `function_ = llvm::Function::Create(... "jyd_shader_fragment", module_);`。不要把 vertex 的返回类型或参数个数改掉：
 
 ```cpp
 llvm::FunctionType* type = llvm::FunctionType::get(
@@ -937,7 +1208,7 @@ llvm::FunctionType* type = llvm::FunctionType::get(
     false);
 ```
 
-`sample()` 保留原来的阶段和参数检查，之后的函数体替换为：
+同类搜索 `CodeValue sample(const std::vector<CodeValue>& arguments)`。保留函数签名和开头的参数/阶段检查 if；从后面的 `llvm::FunctionType* samplerType = ...` 开始，直到该函数原来的 `return result;`（包含）替换为下面片段。保留函数最后的大括号，不保留原来的字节拆包循环：
 
 ```cpp
 auto* texel = builder_.CreateAlloca(builder_.getFloatTy(), builder_.getInt32(4));
@@ -951,7 +1222,7 @@ builder_.CreateCall(samplerType, sampler_,
 return vectorFromPointer(texel, 0, 4);
 ```
 
-`finishFragment()` 完整替换如下。注意没有 clamp、乘 255、整数转换或位打包。
+同类搜索 `bool finishFragment()`，从签名到配对结束大括号完整替换如下，保留外层 StageCompiler。注意没有 clamp、乘 255、整数转换或位打包。
 
 ```cpp
 bool finishFragment() {
@@ -1026,7 +1297,7 @@ void buildCommonFragmentFunction(llvm::Module& module, llvm::IRBuilder<>& b) {
 }
 ```
 
-Native Common 的 fragment 同步替换为以下完整方法；删除旧的“系数为 0 但仍计算”的高光代码。乘零不能消除 NaN。
+文件 `include/shader.hpp` → `struct NativeCommonShader final`，把 2.5-B 的 `bool fragment(..., Color& color)` 整个方法替换为下面方法。顶点方法、name() 和 CommonShader 基类均保留；此时已不再有旧高光分支。
 
 ```cpp
 bool fragment(const Commonv2f& f, LinearColor& color) const override {
@@ -1050,9 +1321,9 @@ fragment {
 }
 ```
 
-Unlit 的 fragment 用 `color = sample(in.texcoord);`。二者 vertex 都采用第 2 步写出的四项输出。Common 保留 0.2 环境常数仅为历史基准；第 7 步的 PBR 不保留它。
+文件 `shaders/unlit.jydshader` 的 fragment 块确认只有 `color = sample(in.texcoord);`。两个脚本的 vertex 块都保留第 2 步的四项输出。Common 保留 0.2 环境常数仅为历史基准；第 7 步的 PBR 不保留它。
 
-为了让本步骤独立可构建，`drawTriangle_byShader()` 暂时把 `Color color` 换为 `LinearColor color`，通过 discard 后再转换：
+为了让本步骤独立可构建，还要修改 **`src/renderer.cpp` → `Renderer::drawTriangle_byShader(...)`**。在这个函数中搜索片元调用前的 `Color color{};`，改成 `LinearColor color{};`；保留随后 `if (shader.fragment(...)) { continue; }` 和 `setZbuffer(...)`，只把它们之后的 `framebuffer_.setPixel(x, y, color);` 替换为下面片段。其他绘制函数里的 `Color` 和 setPixel 不改。文件顶部加入 `#include "color_space.hpp"`：
 
 ```cpp
 const Color display = finiteColor(color)
@@ -1062,7 +1333,58 @@ const Color display = finiteColor(color)
 framebuffer_.setPixel(x, y, display);
 ```
 
-此转换只是一步过渡，仍会截断 HDR；下一步必须删除它。smoke 的回调也改为 void+输出数组，比较 float，不再比较 packed uint32。
+此转换只是一步过渡，仍会截断 HDR；下一步必须删除它。不要现在就编译旧版 smoke；先完成下面 5.5 的调用签名迁移。
+
+#### 5.5 在本步骤迁移 smoke，不等到第 8 步
+
+文件 `tools/llvm_smoke.cpp`；保留 `OwnedShader`、第 2 步更新后的矩阵、uniform、归一化、缺失字段测试及 main 的异常处理。A–B 先迁移采样回调和 `runSmokeTests()` 的两次片元调用；D 再迁移第 2 步新增测试中的片元调用与颜色检查，不能覆盖掉现有回归用例。
+
+**A.** 顶部增加 `#include "color_space.hpp"`。在匿名命名空间中，把 `std::uint32_t sampleTestTexture(...)` 完整替换为下面函数，并在它后面新增颜色检查函数：
+
+```cpp
+void sampleTestTexture(const void*, float, float, float* out) noexcept {
+    const auto c = jyd::decodeBaseColor({10,20,30,255});
+    out[0] = c.r; out[1] = c.g; out[2] = c.b; out[3] = c.a;
+}
+bool matchesTestTexel(const float* color) {
+    float expected[4];
+    sampleTestTexture(nullptr, 0, 0, expected);
+    for (int c = 0; c < 4; ++c)
+        if (!near(color[c], expected[c])) return false;
+    return true;
+}
+```
+
+**B.** 进入 `runSmokeTests()`。搜索 `const std::uint32_t color = shader.fragment(`，将该完整声明/调用到分号替换为：
+
+```cpp
+float color[4]{};
+shader.fragment(uniforms, varying, nullptr, &sampleTestTexture, color, &discard);
+```
+
+把紧接着的失败条件中的 `color != 0xff1e140au` 替换为 `!matchesTestTexel(color)`，保留其他条件。再搜索 `const std::uint32_t scriptedColor = scriptedShader.fragment(`，同样替换为：
+
+```cpp
+float scriptedColor[4]{};
+scriptedShader.fragment(uniforms, scriptedVarying, nullptr,
+                       &sampleTestTexture, scriptedColor, &discard);
+```
+
+其失败条件里的 `scriptedColor != 0xff1e140au` 改为 `!matchesTestTexel(scriptedColor)`。不要修改 vertex 的三参数调用或 ABI 版本比较。
+
+**C.** 根 `CMakeLists.txt`：在 `target_link_libraries(jydLlvmSmoke PRIVATE jydShaderCompiler)` 的完整语句后面加以下块（不存在才加）。否则测试包含带中文注释的 UTF-8 头文件时，MSVC 可能使用错误代码页：
+
+```cmake
+if(MSVC)
+    target_compile_options(jydLlvmSmoke PRIVATE /utf-8)
+endif()
+```
+
+**D. 同步迁移第 2 步新增的测试。**在 `tools/llvm_smoke.cpp::testNormalContract()`，搜索 `const auto color = shader->fragment(`，也改为 `float color[4]{}` 加六参数输出数组调用。删除该函数中的位移取字节、整数容差和 `legacy Common alpha behavior` 检查；RGB 预期改为 `decodeBaseColor({10,20,30,255})` 的对应分量乘 `lighting`，使用 `near` 比较；三条 Common 路径的 alpha 此时统一为 1。直接暴露 normalize 的顶点探针不变。
+
+在 `tools/shader_abi_tests.cpp::testWrappers()`，片元输出局部变量 `reference`、`actual`、`unlitColor`、`color` 都从 `Color` 改为 `LinearColor`；白色纹理的 RGB 预期从 `255 * lighting` 改为 `lighting`，预期值变量改为 float，比较从字节误差改为 `near`；空纹理洋红回退为 `(1,0,1,1)`，Unlit 白色为 `(1,1,1,1)`。最后的世界位置探针比较 `(0.125,0.375,0.625,1)`，不能继续期待 `(31,95,159,255)`。`tools/fixtures/world_position.jydshader` 不用改，它本来输出的就是这些浮点数。保留四项测试的 CMake 注册。
+
+做完才运行本步骤构建及全部 CTest。用第 2 步结尾的 Debug/Release 命令即可；新增的 HDR 返回值检查使用本节验收所述 shader，仍要带完整的四项 vertex 输出。
 
 ### 验证与本步结束点
 
@@ -1112,19 +1434,21 @@ inline Color toDisplay(LinearColor c, float exposure) {
 
 #### 6.2 接到 Renderer 的生命周期
 
-`include/renderer.hpp` 增加 `color_space.hpp`、`<cstddef>`，private 增加：
+文件 `include/renderer.hpp`：顶部 include 区增加 `#include "color_space.hpp"` 和 `#include <cstddef>`。搜索 `class Renderer` 的 `private:`，在 `std::vector<float> zbuffer_;` 之后插入：
 
 ```cpp
 std::vector<LinearColor> hdr_;
 ```
 
-public 增加 `std::size_t resolveHdr(float exposure);`。构造函数的 zbuffer 初始化后插入：
+同一个类的 `public:` 中，紧接 `void clear(const Color& color);` 后新增声明 `std::size_t resolveHdr(float exposure);`，不要把定义放在这里。
+
+切换到文件 `src/renderer.cpp`，搜索 `Renderer::Renderer(Framebuffer& framebuffer)`，在构造函数体内已有 `zbuffer_.resize(...)` 语句之后插入：
 
 ```cpp
 hdr_.resize(static_cast<std::size_t>(framebuffer_.width()) * framebuffer_.height());
 ```
 
-`clear()` 保留原来的 byte framebuffer 和 depth 清理，再补：
+仍在 `src/renderer.cpp`，搜索 `void Renderer::clear(const Color& color)`，在函数体内 `zbuffer_.assign(...)` 之后插入；原 framebuffer/depth 清理保留：
 
 ```cpp
 std::fill(hdr_.begin(), hdr_.end(), LinearColor{0, 0, 0, 1});
@@ -1132,7 +1456,7 @@ std::fill(hdr_.begin(), hdr_.end(), LinearColor{0, 0, 0, 1});
 
 本版明确采用黑色 HDR 背景；旧的 `{20,24,33}` 仍是非光照模式背景。直接把旧字节背景解码再 tone-map，会改变背景亮度，不能声称保持原样。未来若增加窗口尺寸变化，HDR、深度、Framebuffer 和相机宽高必须一起更新；当前固定窗口不新增 resize 系统。
 
-在 `drawTriangle_byShader()` 中删除第 5 步的临时显示转换，用下面代码替换原片元调用到写像素的部分。它在通过深度测试、获得 `fragmentInput` 后执行：
+同文件搜索 `Renderer::drawTriangle_byShader(...)`。在 `fragmentInput` 插值语句之后，找到 5.4 留下的 `LinearColor color{};`。从这一行起，到临时显示转换最后的 `framebuffer_.setPixel(x, y, display);` 为止，整段替换为下方代码。不要保留原 setZbuffer 或显示转换的第二份；外面的深度测试和 x/y 循环不动：
 
 ```cpp
 LinearColor color{};
@@ -1143,7 +1467,7 @@ hdr_[static_cast<std::size_t>(y) * framebuffer_.width() + x] = color;
 
 必须先判断 discard，再写深度和颜色。否则被丢弃的片元会遮住后面的物体。这里沿用现有光栅循环对 x/y 的屏幕范围裁剪。
 
-`src/renderer.cpp` include `display_transform.hpp`，新增完整成员函数：
+`src/renderer.cpp` 顶部 include 区增加 `#include "display_transform.hpp"`。在 `Renderer::clear()` 完整函数结束之后、`Renderer::getZbuffer()` 定义之前插入下面完整成员函数；仍位于 `namespace jyd` 内，不放进 clear 的函数体。声明已在 renderer.hpp 添加：
 
 ```cpp
 std::size_t Renderer::resolveHdr(float exposure) {
@@ -1161,7 +1485,7 @@ std::size_t Renderer::resolveHdr(float exposure) {
 }
 ```
 
-`src/main.cpp` 中，在模型循环结束后、`window.present(framebuffer)` 之前插入：
+文件 `src/main.cpp`，搜索 `runRenderer(...)` 内的 `window.present(framebuffer);`。把下方代码插入这行**之前**；此时 `for (const RenderItem& item : scene)` 已结束，但仍在 `if (!init || frame.needsRedraw)` 内。不能放在模型循环内部，否则每画一个模型都会 resolve 一遍：
 
 ```cpp
 if (mod == jyd::Lighting) {
@@ -1278,7 +1602,7 @@ inline PbrResult evaluatePbr(vec3 base, float metallic, float roughness,
 
 返回 diffuse/specular 是为了分别测试，最终显示的是 radiance。背面测试应检查 radiance=0，不应误要求所有中间 BRDF 分量都为零。
 
-在 `include/shader.hpp` 包含 `pbr.hpp`、`texture_sampling.hpp`，新增完整类；保留 NativeCommonShader：
+文件 `include/shader.hpp` 顶部加入 `#include "pbr.hpp"`，并确认 `texture_sampling.hpp` 已由第 5 步加入。搜索 `struct NativeCommonShader final`，找到这个类的配对 `};`。把下方完整新类插在该 `};` **之后**、最外层 `namespace jyd` 的结束 `}` **之前**。保留整个 NativeCommonShader，不把新类嵌套在旧类内部。真正的 UI 选择入口在 8.1 接入，在此之前新类只是可用但尚未被选择。
 
 ```cpp
 struct NativePbrShader final : public CommonShader {
@@ -1551,7 +1875,7 @@ int main() {
 
 #### 8.4 注册目标和执行命令
 
-第 0 步已加入 `include(CTest)`。在根 `CMakeLists.txt` 的已有目标定义之后追加以下块；不要重复定义 camera 测试。
+文件为根 `CMakeLists.txt`。第 0 步已加入 `include(CTest)`，第 2 步又在其 BUILD_TESTING 块中注册了 varying。搜索文件末尾的 `install(TARGETS jydRenderer RUNTIME DESTINATION bin)`，把下面**整个新 if 块**插入该行之前、现有 BUILD_TESTING 块的 endif 之后。不要嵌进 `if(WIN32)` 或其他目标的命令括号里；不要重复定义 camera、varying 或重复 include(CTest)。
 
 ```cmake
 if(BUILD_TESTING)
@@ -1574,92 +1898,17 @@ if(BUILD_TESTING)
         add_test(NAME pbr_jit COMMAND jydPbrJitTests)
         set_tests_properties(pbr_jit PROPERTIES
             WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-        add_test(NAME llvm_smoke COMMAND jydLlvmSmoke)
-        set_tests_properties(llvm_smoke PROPERTIES
-            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
     endif()
 endif()
 ```
 
 Windows 下测试需要 `jydShaderCompiler.dll` 及其运行依赖能被找到。默认同配置输出目录沿用现有部署；如果修改了目标输出目录，必须同步复制 DLL，而不是把加载失败算作公式错误。测试本身不初始化 Qt，但项目顶层配置仍会查找 Qt/SDL，因此这里没有声称可脱离项目依赖随意配置。
 
-现有 `tools/llvm_smoke.cpp` 也必须迁移，不能让旧的 packed-color 测试继续调用新 ABI。以下为完整替换版本，保留最初的 LLVM 42 测试，并对手写 Common 和脚本 Common 使用非对称矩阵、12 项 varying 和线性回调。给 `jydLlvmSmoke` 同样补 `target_compile_options(jydLlvmSmoke PRIVATE /utf-8)`（放在 MSVC 条件内）；测试头文件与源文件同在 tools 下，无需额外包含目录。
+`tools/llvm_smoke.cpp` 的浮点迁移已经在 **5.5** 完成，第 8 步不再提供另一份整文件覆盖版本。保留第 1–2 步的 `testRowMajorMatrix()`、`testUniformFields()` 和 RAII，保留第 5 步的新回调/输出数组检查。以前的简化整文件示例会丢失字段探针与 View 不变性回归，因此不再使用。
 
-```cpp
-#include "llvm_support.hpp"
-#include "shader_abi.hpp"
-#include "color_space.hpp"
-#include "test_support.hpp"
-#include <algorithm>
-#include <array>
-#include <fstream>
-#include <iostream>
-#include <iterator>
-#include <string>
+smoke 已在第 2 步注册进 CTest，此处只补后续语法的编译器正反例。在同文件匿名命名空间中新增测试函数（先检查是否已有同名用例），在 `runSmokeTests()` 返回 0 之前调用。成功用例检查 jydCompileShaderSource 返回非零；非法 swizzle 等用例检查返回零，且由 OwnedShader 释放任何非空 handle。`discard=1` 的 shader 仍须给 color 和四项 vertex 输出。测试头文件与源文件同在 tools 下，不需要额外包含路径；MSVC 的 `/utf-8` 已按 5.5-C 加给 jydLlvmSmoke，别重复追加。
 
-namespace {
-void sampleTestTexture(const void*, float, float, float* out) noexcept {
-    const auto c = jyd::decodeBaseColor({10,20,30,255});
-    out[0]=c.r; out[1]=c.g; out[2]=c.b; out[3]=c.a;
-}
-struct Program {
-    jyd::JydShaderProgram value{};
-    Program() = default;
-    Program(const Program&) = delete;
-    Program& operator=(const Program&) = delete;
-    ~Program() { if (value.handle) jyd::jydDestroyShaderProgram(value.handle); }
-};
-void testCommon(jyd::JydShaderProgram& shader) {
-    namespace U = jyd::shader_abi::Uniform;
-    namespace V = jyd::shader_abi::Varying;
-    std::array<float,U::Count> uniforms{};
-    const float matrix[16] = {1,2,0,3, 0,4,5,6, 7,0,8,9, 0,0,0,1};
-    std::copy(matrix, matrix+16, uniforms.data()+U::Mvp);
-    for (int i=0;i<4;++i) uniforms[U::View+i*4+i]=1;
-    uniforms[U::DiffuseLight+2]=1;
-    const float input[8]={1,2,3, 0,0,2, 0.25f,0.75f};
-    std::array<float,V::Count> varying{};
-    shader.vertex(uniforms.data(),input,varying.data());
-    // 法线在顶点阶段保留原长度，片元阶段再归一化。
-    const float expected[12]={8,29,40,1, 0,0,2, 0.25f,0.75f, 1,2,3};
-    for (int i=0;i<V::Count;++i) check(near(varying[i],expected[i]),"Common vertex");
-    float actual[4]={};
-    int discard=-1;
-    shader.fragment(uniforms.data(),varying.data(),nullptr,&sampleTestTexture,
-                    actual,&discard);
-    float texel[4]; sampleTestTexture(nullptr,0,0,texel);
-    for (int i=0;i<4;++i) check(near(actual[i],texel[i]),"Common linear fragment");
-    check(discard==0,"Common discard");
-}
-}
-int main() {
-    try {
-        using namespace jyd;
-        check(jydShaderAbiVersion()==shader_abi::Version,"ABI mismatch");
-        LlvmSmokeResult result{};
-        check(jydRunLlvmSmokeTest(&result)!=0,result.error);
-        check(near(result.value,42),"LLVM 42");
-        Program builtin;
-        check(jydCompileBuiltinCommonShader(&builtin.value)!=0,builtin.value.error);
-        testCommon(builtin.value);
-        std::ifstream file("shaders/common.jydshader",std::ios::binary);
-        check(file.good(),"cannot open Common shader");
-        const std::string source((std::istreambuf_iterator<char>(file)),
-                                 std::istreambuf_iterator<char>());
-        Program scripted;
-        check(jydCompileShaderSource(source.data(),source.size(),&scripted.value)!=0,
-              scripted.value.error);
-        testCommon(scripted.value);
-        std::cout << "LLVM, builtin Common, scripted Common passed\n";
-        return 0;
-    } catch (const std::exception& e) {
-        std::cerr << e.what() << '\n';
-        return 1;
-    }
-}
-```
-
-为错误编译、非法 swizzle、零 normalize 另外补最小脚本 case；失败编译的 handle 如非空也应销毁。用于验证 `discard=1` 的脚本仍须产生合法的 color 输出。UTF-8 编译选项不能只加给 jydRenderer：测试也会包含带中文注释的头文件，系统默认代码页可能把它们解析错。
+下面命令才是全部集成后的验收；前面的代码片段不是本次已经完成的源码修改。
 
 ```powershell
 cmake --preset vs2022-x64 -DJYD_ENABLE_LLVM=ON -DBUILD_TESTING=ON
@@ -1697,7 +1946,7 @@ ctest --test-dir build/native-pbr -C Release --output-on-failure
 
 PBRT 对这里最有用的启发是清晰的数据与物理约定：哪些量是辐亮度，哪些是反射率，方向属于哪个空间，采样和评价各自返回什么。光谱采样、路径积分器和 GPU 波前执行则属于不同层次，不能因为读到这些章节，就把目前的 CPU 光栅器一次改成另一个项目。
 
-本文的函数与脚本是面向当前仓库编写的实施参考；后续落地时仍须跑完整构建与场景回归。**目前第 0–1 步已进入项目源码，第 2–8 步尚未实施；未执行的验收项不视为通过。**
+本文的函数与脚本是面向当前仓库编写的实施参考；后续落地时仍须跑完整构建与场景回归。**目前第 0–2 步已进入项目源码，第 3–8 步尚未实施；未执行的验收项不视为通过。**
 
 ## 本次文档校验范围
 
@@ -1707,4 +1956,12 @@ PBRT 对这里最有用的启发是清晰的数据与物理约定：哪些量是
 
 2026-10-12：第 1 步已完成并通过 Debug/Release 构建、LLVM smoke 和相机回归。新增测试覆盖内置/脚本 Common 的 MVP、View、法线、UV 和脚本 uniform 字段读取；ABI 版本检查已接入。第 1 步只集中原有布局，不改变颜色接口或字段总数。
 
-尚未实施或运行的是：后续世界位置与浮点颜色 ABI 扩展、编译器新语法、完整 PBR JIT 对照、Renderer HDR 接线、UI 和场景回归。临时数值测试与第 1 步测试通过，不等于这些后续集成步骤已经完成。
+截至 2026-10-12 尚未实施或运行的是：后续世界位置与浮点颜色 ABI 扩展、编译器新语法、完整 PBR JIT 对照、Renderer HDR 接线、UI 和场景回归。临时数值测试与第 1 步测试通过，不等于这些后续集成步骤已经完成。
+
+2026-10-13 文档审校：按 `ea8529d` 后的当前源码补充文件、类/函数、搜索锚点与新增/替换边界；第 2 步增加已有 smoke 的迁移位置和 varying 测试，第 5 步明确当步迁移浮点 smoke，第 8 步不再整文件覆盖前面的回归。安全 normalize 的修改从旧 4.3 前移到 2.5-D，避免第 2 步验收依赖尚未执行的第 4 步。
+
+10 月 13 日这次仅修改文档。将 2.2/2.3/2.5-B 的 C++ 片段应用到临时 shader 头副本，并提取 render_math 与 varying_tests 示例，以 MSVC C++17、Release/NDEBUG 编译，透视世界位置、原始法线长度和裁剪边插值检查通过。当时没有把这些片段应用到实际 include/src/shaders，也没有运行第 2–8 步的生产集成构建；第 2 步在当时仍标为待完成。
+
+2026-10-14：在你已实现的第 2 步代码之上完成工程收尾，未改动你的透视插值和 `safeNormalize` 公式，未实现后续 PBR 核心。构建 `jydRenderer`、`jydLlvmSmoke`、`jydCameraTests`、`jydVaryingTests`、`jydShaderAbiTests`，Debug/Release 均成功；两个配置的 CTest 均为 4/4 通过。新增用例覆盖非对称矩阵、View 不变性、世界位置宿主读写、原始法线与 UV 插值、安全归一化、缺失 worldPosition 的编译诊断、Common RGB 对照和 Unlit 回归。字节颜色的比较允许 1 级量化误差，直接 normalize/顶点输出比较使用浮点 `near`，并非逐字节图像一致性验证。
+
+本轮未运行 LLVM OFF 构建、窗口图像对照或第 3–8 步验收。旧 Common 脚本缩放 alpha 而 Native/内置 IR 保留 alpha 的差异，明确保留至第 5 步浮点输出迁移，不据此声称三个后端 RGBA 完全一致。现有注释编码、变量遮蔽和类型转换警告未清理。第 2 步提交前再次运行 Debug/Release CTest，两种配置均为 4/4 通过；提交范围不包含 `tmp/` 和独立的 `docs/pbrt-study/` 阅读实验。

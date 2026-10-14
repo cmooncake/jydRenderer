@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -153,12 +154,6 @@ void buildCommonVertexFunction(
         loadFloat(builder, input, I::Position + 2),
         llvm::ConstantFP::get(builder.getFloatTy(), 1.0)
     };
-    llvm::Value* normal[4] = {
-        loadFloat(builder, input, I::Normal + 0),
-        loadFloat(builder, input, I::Normal + 1),
-        loadFloat(builder, input, I::Normal + 2),
-        llvm::ConstantFP::get(builder.getFloatTy(), 0.0)
-    };
 
     for (int row = 0; row < 4; ++row) {
         llvm::Value* transformed = llvm::ConstantFP::get(
@@ -173,33 +168,11 @@ void buildCommonVertexFunction(
         storeFloat(builder, output, V::Position + row, transformed);
     }
 
-    llvm::Value* transformedNormal[3]{};
-    llvm::Value* lengthSquared = llvm::ConstantFP::get(
-        builder.getFloatTy(), 0.0);
-    for (int row = 0; row < 3; ++row) {
-        transformedNormal[row] = llvm::ConstantFP::get(
-            builder.getFloatTy(), 0.0);
-        for (int column = 0; column < 4; ++column) {
-            transformedNormal[row] = builder.CreateFAdd(
-                transformedNormal[row],
-                builder.CreateFMul(
-                    loadFloat(builder, uniforms, U::View + row * 4 + column),
-                    normal[column]));
-        }
-        lengthSquared = builder.CreateFAdd(
-            lengthSquared,
-            builder.CreateFMul(
-                transformedNormal[row], transformedNormal[row]));
-    }
-    llvm::Value* length = builder.CreateUnaryIntrinsic(
-        llvm::Intrinsic::sqrt,
-        clampFloat(builder, lengthSquared, 1.0e-16f, 1.0e30f));
-    for (int component = 0; component < 3; ++component) {
-        storeFloat(
-            builder,
-            output,
-            V::Normal + component,
-            builder.CreateFDiv(transformedNormal[component], length));
+    for (int c = 0; c < 3; ++c) {
+        storeFloat(builder, output, shader_abi::Varying::Normal + c,
+            loadFloat(builder, input, shader_abi::VertexIn::Normal + c));
+        storeFloat(builder, output, shader_abi::Varying::WorldPosition + c,
+            loadFloat(builder, input, shader_abi::VertexIn::Position + c));
     }
     storeFloat(builder, output, V::Texcoord,
         loadFloat(builder, input, I::Texcoord));
@@ -245,14 +218,31 @@ void buildCommonFragmentFunction(
         sampler,
         {texture, loadFloat(builder, input, V::Texcoord), loadFloat(builder, input, V::Texcoord + 1)});
 
-    llvm::Value* diffuse = llvm::ConstantFP::get(
-        builder.getFloatTy(), 0.0);
+    const auto constant = [&](float value) -> llvm::Value* {
+        return llvm::ConstantFP::get(builder.getFloatTy(), value);
+    };
+    llvm::Value* normal[3];
+    llvm::Value* lengthSquared = constant(0.0f);
     for (int component = 0; component < 3; ++component) {
+        normal[component] = loadFloat(builder, input, V::Normal + component);
+        lengthSquared = builder.CreateFAdd(lengthSquared,
+            builder.CreateFMul(normal[component], normal[component]));
+    }
+    // Match render_math.hpp::safeNormalize, including NaN and overflow.
+    llvm::Value* valid = builder.CreateAnd(
+        builder.CreateFCmpOGT(lengthSquared, constant(1.0e-16f)),
+        builder.CreateFCmpOLE(lengthSquared, constant(std::numeric_limits<float>::max())));
+    llvm::Value* length = builder.CreateUnaryIntrinsic(llvm::Intrinsic::sqrt,
+        builder.CreateSelect(valid, lengthSquared, constant(1.0f)));
+    llvm::Value* diffuse = constant(0.0f);
+    for (int component = 0; component < 3; ++component) {
+        llvm::Value* unitNormal = builder.CreateSelect(valid,
+            builder.CreateFDiv(normal[component], length), constant(0.0f));
         diffuse = builder.CreateFAdd(
             diffuse,
             builder.CreateFMul(
                 loadFloat(builder, uniforms, U::DiffuseLight + component),
-                builder.CreateFNeg(loadFloat(builder, input, V::Normal + component))));
+                unitNormal));
     }
     diffuse = clampFloat(builder, diffuse, 0.0f, 1.0f);
     llvm::Value* lighting = builder.CreateFAdd(

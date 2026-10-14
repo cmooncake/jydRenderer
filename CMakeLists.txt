@@ -243,6 +243,33 @@ if(BUILD_TESTING)
         target_compile_options(jydCameraTests PRIVATE /utf-8)
     endif()
     add_test(NAME camera COMMAND jydCameraTests)
+
+    add_executable(jydVaryingTests tools/varying_tests.cpp)
+    target_include_directories(jydVaryingTests PRIVATE include tools)
+    if(MSVC)
+        target_compile_options(jydVaryingTests PRIVATE /utf-8)
+    endif()
+    add_test(NAME varying COMMAND jydVaryingTests)
+
+    if(JYD_ENABLE_LLVM)
+        add_test(NAME llvm_smoke COMMAND jydLlvmSmoke)
+        set_tests_properties(llvm_smoke PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
+        add_executable(jydShaderAbiTests
+            tools/shader_abi_tests.cpp
+            src/llvm_shader.cpp
+            src/texture.cpp
+            src/stb_image.cpp)
+        target_include_directories(jydShaderAbiTests PRIVATE include tools third_party/stb)
+        target_link_libraries(jydShaderAbiTests PRIVATE jydShaderCompiler)
+        if(MSVC)
+            target_compile_options(jydShaderAbiTests PRIVATE /utf-8)
+        endif()
+        add_test(NAME shader_abi COMMAND jydShaderAbiTests)
+        set_tests_properties(shader_abi PROPERTIES
+            WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
 endif()
 
 

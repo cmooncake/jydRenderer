@@ -307,7 +307,7 @@ void Renderer::drawTriangle_byShader(int x0, int y0, float z0, int x1, int y1, f
                     VaryingTraits<Commonv2f>::clipPosition(vertices[2])[3];
                 const float denominator =
                     correctedAlpha + correctedBeta + correctedGamma;
-                if (std::abs(denominator) < 1e-8f) {
+                if (!std::isfinite(denominator) || std::abs(denominator) < 1e-8f) {
                     continue;
                 }
 

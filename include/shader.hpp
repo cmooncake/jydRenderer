@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "texture.hpp"
+#include "render_math.hpp"
 
 namespace jyd {
 
@@ -22,10 +23,12 @@ namespace jyd {
     };
 
     struct Commonv2f {
-        vec4 position;
-        vec3 normal;
+        vec4 position;      // Clip space; not a world-space lighting position.
+        vec3 normal;        // World space, normalized only at fragment shading.
         vec2 texcoord;
+        vec3 worldPosition; // Model is identity until model transforms are added.
     };
+
 
     template<typename Varying>
     struct VaryingTraits;
@@ -37,47 +40,29 @@ namespace jyd {
         }
 
         static Commonv2f interpolateEdge(
-            const Commonv2f& from,
-            const Commonv2f& to,
-            float t) {
+            const Commonv2f& a, const Commonv2f& b, float t) {
             return {
-                from.position + (to.position - from.position) * t,
-                from.normal + (to.normal - from.normal) * t,
-                from.texcoord + (to.texcoord - from.texcoord) * t
+                a.position + (b.position - a.position) * t,
+                a.normal + (b.normal - a.normal) * t,
+                a.texcoord + (b.texcoord - a.texcoord) * t,
+                a.worldPosition + (b.worldPosition - a.worldPosition) * t
             };
         }
 
         static Commonv2f interpolateFragment(
-            const Commonv2f (&vertices)[3],
-            float alpha,
-            float beta,
-            float gamma) {
-            const float correctedAlpha =
-                alpha / clipPosition(vertices[0])[3];
-            const float correctedBeta =
-                beta / clipPosition(vertices[1])[3];
-            const float correctedGamma =
-                gamma / clipPosition(vertices[2])[3];
-            const float denominator =
-                correctedAlpha + correctedBeta + correctedGamma;
-
-            Commonv2f result;
-            result.position =
-                (vertices[0].position * correctedAlpha +
-                 vertices[1].position * correctedBeta +
-                 vertices[2].position * correctedGamma) /
-                denominator;
-            result.normal = normalize(
-                (vertices[0].normal * correctedAlpha +
-                 vertices[1].normal * correctedBeta +
-                 vertices[2].normal * correctedGamma) /
-                denominator);
-            result.texcoord =
-                (vertices[0].texcoord * correctedAlpha +
-                 vertices[1].texcoord * correctedBeta +
-                 vertices[2].texcoord * correctedGamma) /
-                denominator;
-            return result;
+            const Commonv2f(&v)[3], float a, float b, float c) {
+            // 调用方保留 w 有限、非零和分母有效性检查。
+            const float q0 = a / v[0].position.w;
+            const float q1 = b / v[1].position.w;
+            const float q2 = c / v[2].position.w;
+            const float s = q0 + q1 + q2;
+            return {
+                (v[0].position * q0 + v[1].position * q1 + v[2].position * q2) / s,
+                (v[0].normal * q0 + v[1].normal * q1 + v[2].normal * q2) / s,
+                (v[0].texcoord * q0 + v[1].texcoord * q1 + v[2].texcoord * q2) / s,
+                (v[0].worldPosition * q0 + v[1].worldPosition * q1 +
+                 v[2].worldPosition * q2) / s
+            };
         }
     };
 
@@ -100,11 +85,9 @@ namespace jyd {
             return "Native Common";
         }
 
-        Commonv2f vertex(const Commona2v& vertex) const override {
-            vec4 pos = mvp * vec4(vertex.position, 1.0f);
-            vec4 n = normalize(vp * vec4(vertex.normal, 0.0f));
-
-            return { pos, vec3(n), vertex.texcoord };
+        Commonv2f vertex(const Commona2v& a) const override {
+            return {mvp * vec4(a.position, 1.0f),
+                    a.normal, a.texcoord, a.position};
         }
         bool fragment(const Commonv2f& f, Color& color) const override {
             if (texture == nullptr) {
@@ -114,29 +97,14 @@ namespace jyd {
             }
 
             const Color texel = texture->sampleNearest(f.texcoord);
-            const vec3 texColor = vec3(texel.r, texel.g, texel.b) / 255.0f;
-
-            // Retain the simple diffuse light with a small ambient component.
-            const float diffuse = DiffuseLightDirection * vec3(-f.normal);
-            const float diffuseClamped = std::clamp(diffuse, 0.0f, 1.0f);
-
-            const float diffuseFactor = 0.8f;
-            vec3 diffuseColor = vec3(1.0f, 1.0f, 1.0f) * diffuseClamped * diffuseFactor;
-
-            vec3 viewDir = normalize(cameraPosition - vec3(f.position));
-            vec3 halfwayDir = normalize(SpecularLightDirection + viewDir);
-            const float specular = std::pow(std::max(0.0f, vec3(-f.normal) * halfwayDir), 32.0f);
-            const float specularFactor = 0.0f; // Adjust this value to control the specular intensity
-            vec3 specularColor = vec3(1.0f, 1.0f, 1.0f) * specular * specularFactor;
-
-            const float lighting = diffuseClamped * diffuseFactor + specular * specularFactor + 0.2f; // Add ambient component
-            vec3 finalColor = texColor * lighting;
-
-
+            const vec3 n = safeNormalize(f.normal);
+            // Legacy Common lighting, not PBR. Light points toward the source.
+            const float diffuse = std::clamp(n * DiffuseLightDirection, 0.0f, 1.0f);
+            const float lighting = diffuse * 0.8f + 0.2f;
             color = {
-                static_cast<std::uint8_t>(finalColor[0] * 255),
-                static_cast<std::uint8_t>(finalColor[1] * 255),
-                static_cast<std::uint8_t>(finalColor[2] * 255),
+                static_cast<std::uint8_t>(texel.r * lighting),
+                static_cast<std::uint8_t>(texel.g * lighting),
+                static_cast<std::uint8_t>(texel.b * lighting),
                 texel.a
             };
             return false;

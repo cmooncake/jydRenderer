@@ -6,14 +6,16 @@
 shader CommonTexturedLighting {
     vertex {
         position = transform_point(mvp, in.position);
-        normal = normalize(transform_direction(vp, in.normal));
+        normal = in.normal;
         texcoord = in.texcoord;
+        worldPosition = in.position;
     }
 
     fragment {
         let texel = sample(in.texcoord);
+        let n = normalize(in.normal);
         let diffuse = clamp(
-            dot(diffuseLightDirection, -in.normal),
+            dot(diffuseLightDirection, n),
             0.0,
             1.0);
         color = texel * (diffuse * 0.8 + 0.2);

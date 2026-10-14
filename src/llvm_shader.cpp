@@ -121,6 +121,9 @@ Commonv2f LlvmCommonShader::vertex(const Commona2v& input) const {
     for (int c = 0; c < 2; ++c) {
         result.texcoord[c] = shaderOutput[V::Texcoord + c];
     }
+    for (int c = 0; c < 3; ++c) {
+        result.worldPosition[c] = shaderOutput[V::WorldPosition + c];
+    }
     return result;
 }
 
@@ -140,7 +143,9 @@ bool LlvmCommonShader::fragment(const Commonv2f& input, Color& color) const {
 		shaderInput[V::Normal + i] = input.normal[i];
 	for (int i = 0; i < 2; ++i) 
 		shaderInput[V::Texcoord + i] = input.texcoord[i];
-
+    for (int c = 0; c < 3; ++c) {
+        shaderInput[V::WorldPosition + c] = input.worldPosition[c];
+    }
     int discard = 0;
     const std::uint32_t packed = program_.fragment(
         uniforms_.data(),

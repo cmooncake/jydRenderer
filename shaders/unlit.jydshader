@@ -1,8 +1,9 @@
 shader UnlitTexture {
     vertex {
         position = transform_point(mvp, in.position);
-        normal = normalize(transform_direction(vp, in.normal));
+        normal = in.normal;
         texcoord = in.texcoord;
+        worldPosition = in.position;
     }
 
     fragment {

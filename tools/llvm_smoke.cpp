@@ -1,5 +1,6 @@
 #include "llvm_support.hpp"
 #include "shader_abi.hpp"
+#include "render_math.hpp"
 #include "test_support.hpp"
 #include <algorithm>
 
@@ -8,6 +9,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <string>
 
 namespace {
@@ -58,13 +60,16 @@ void testRowMajorMatrix(const jyd::JydShaderProgram& shader) {
           near(output[V::Position + 1], 29) &&
           near(output[V::Position + 2], 40) &&
           near(output[V::Position + 3], 1), "row-major MVP ABI");
-    check(near(output[V::Normal + 0], 2.0f / 7.0f) &&
-          near(output[V::Normal + 1], 3.0f / 7.0f) &&
-          near(output[V::Normal + 2], 6.0f / 7.0f), "normal field ABI");
+    check(near(output[V::Normal + 0], 2.0f) &&
+          near(output[V::Normal + 1], 3.0f) &&
+          near(output[V::Normal + 2], 6.0f), "raw normal field ABI");
+    check(near(output[V::WorldPosition + 0], 1.0f) &&
+          near(output[V::WorldPosition + 1], 2.0f) &&
+          near(output[V::WorldPosition + 2], 3.0f), "world position ABI");
     check(near(output[V::Texcoord + 0], 0.25f) &&
           near(output[V::Texcoord + 1], 0.75f), "texcoord field ABI");
 
-    // Also exercise View's distinct offset and row-major direction transform.
+    // Changing View must not rotate world-space attributes.
     const float view[16] = {
         1, 2, 0, 11,
         0, 1, 3, 13,
@@ -73,15 +78,17 @@ void testRowMajorMatrix(const jyd::JydShaderProgram& shader) {
     };
     std::copy(view, view + 16, uniforms + U::View);
     shader.vertex(uniforms, input, output);
-    const float length = std::sqrt(701.0f); // (8,21,14), translation ignored.
-    check(near(output[V::Normal + 0], 8.0f / length) &&
-          near(output[V::Normal + 1], 21.0f / length) &&
-          near(output[V::Normal + 2], 14.0f / length), "row-major View ABI");
+    check(near(output[V::Normal + 0], 2.0f) &&
+          near(output[V::Normal + 1], 3.0f) &&
+          near(output[V::Normal + 2], 6.0f), "world normal must ignore View");
+    check(near(output[V::WorldPosition + 0], 1.0f) &&
+          near(output[V::WorldPosition + 1], 2.0f) &&
+          near(output[V::WorldPosition + 2], 3.0f), "world position must ignore View");
     check(near(output[V::Position + 0], 8) &&
           near(output[V::Position + 1], 29) &&
           near(output[V::Position + 2], 40) &&
           near(output[V::Position + 3], 1), "View must not overwrite MVP");
-    std::cout << shader.name << ": matrix/normal/UV ABI: OK\n";
+    std::cout << shader.name << ": matrix/normal/UV/world position ABI: OK\n";
 }
 
 void testUniformFields() {
@@ -106,7 +113,8 @@ void testUniformFields() {
         const std::string source =
             std::string("shader UniformProbe { vertex { ") +
             "position = transform_point(mvp, in.position); normal = " + field.name +
-            "; texcoord = in.texcoord; } fragment { color = vec4(1,1,1,1); } }";
+            "; texcoord = in.texcoord; worldPosition = in.position; } "
+            "fragment { color = vec4(1,1,1,1); } }";
         OwnedShader probe;
         check(jyd::jydCompileShaderSource(source.data(), source.size(), &probe.program) != 0,
               probe.program.error);
@@ -117,6 +125,69 @@ void testUniformFields() {
             check(near(output[V::Normal + c], field.values[c]), field.name);
     }
     std::cout << "Shader uniform field offsets: OK\n";
+}
+
+void testNormalContract(const jyd::JydShaderProgram& builtin,
+                        const jyd::JydShaderProgram& scripted) {
+    // Expose the compiler builtin directly, without lighting/byte clamping
+    // masking a wrong normalize implementation.
+    const std::string source =
+        "shader NormalizeProbe { vertex { "
+        "position = transform_point(mvp, in.position); "
+        "normal = normalize(in.normal); texcoord = in.texcoord; "
+        "worldPosition = in.position; } fragment { color = vec4(1,1,1,1); } }";
+    OwnedShader probe;
+    check(jyd::jydCompileShaderSource(source.data(), source.size(), &probe.program) != 0,
+          probe.program.error);
+    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const vec3 normals[] = {
+        {0, 0, 2}, {0, 3, 4}, {0, 0, -2}, {0, 0, 0},
+        {0, 0, 1e-10f}, {0, 0, 1e-8f}, {0, 0, 2e-8f},
+        {inf, 0, 1}, {0, nan, 1}, {0, 0, 1e30f}
+    };
+    float uniforms[U::Count]{};
+    uniforms[U::DiffuseLight + 2] = 1;
+    for (const auto& normal : normals) {
+        float input[I::Count]{};
+        float output[V::Count]{};
+        for (int c = 0; c < 3; ++c) input[I::Normal + c] = normal[c];
+        probe.program.vertex(uniforms, input, output);
+        const auto expectedNormal = jyd::safeNormalize(normal);
+        for (int c = 0; c < 3; ++c)
+            check(near(output[V::Normal + c], expectedNormal[c]), "safe normalize contract");
+
+        const float lighting = std::clamp(expectedNormal.z, 0.0f, 1.0f) * 0.8f + 0.2f;
+        for (const auto* shader : {&builtin, &scripted}) {
+            for (int c = 0; c < 3; ++c) output[V::Normal + c] = normal[c];
+            int discard = -1;
+            const auto color = shader->fragment(uniforms, output, nullptr,
+                                                &sampleTestTexture, &discard);
+            check(discard == 0, "Common must not discard");
+            for (int c = 0; c < 3; ++c) {
+                const int actual = (color >> (c * 8)) & 0xffu;
+                const int expected = static_cast<int>((c + 1) * 10 * lighting);
+                check(std::abs(actual - expected) <= 1, "Common fragment normalization RGB");
+            }
+            // Until the float-color migration, the script scales alpha too.
+            const int expectedAlpha = shader == &builtin ? 255 : static_cast<int>(255 * lighting);
+            check(std::abs(static_cast<int>(color >> 24) - expectedAlpha) <= 1,
+                  "legacy Common alpha behavior");
+        }
+    }
+    std::cout << "Normal length/zero/tiny/NaN/Inf/overflow contract: OK\n";
+}
+
+void testRequiredWorldPosition() {
+    const std::string source =
+        "shader MissingWorld { vertex { position = transform_point(mvp, in.position); "
+        "normal = in.normal; texcoord = in.texcoord; } "
+        "fragment { color = vec4(1,1,1,1); } }";
+    OwnedShader probe;
+    check(jyd::jydCompileShaderSource(source.data(), source.size(), &probe.program) == 0,
+          "ABI v2 must reject a missing worldPosition output");
+    check(std::string(probe.program.error).find("worldPosition") != std::string::npos,
+          "missing output diagnostic must name worldPosition");
 }
 
 } // namespace
@@ -154,7 +225,7 @@ int runSmokeTests() {
         uniforms[U::Mvp + component * 4 + component] = 1.0f;
         uniforms[U::View + component * 4 + component] = 1.0f;
     }
-    uniforms[U::DiffuseLight + 2] = -1.0f;
+    uniforms[U::DiffuseLight + 2] = 1.0f;
 
     float vertexInput[I::Count]{};
     vertexInput[I::Position + 0] = 1.0f;
@@ -183,7 +254,10 @@ int runSmokeTests() {
         near(varying[V::Normal + 1], 0.0f) &&
         near(varying[V::Normal + 2], 1.0f) &&
         near(varying[V::Texcoord + 0], 0.25f) &&
-        near(varying[V::Texcoord + 1], 0.75f);
+        near(varying[V::Texcoord + 1], 0.75f) &&
+        near(varying[V::WorldPosition + 0], 1.0f) &&
+        near(varying[V::WorldPosition + 1], 2.0f) &&
+        near(varying[V::WorldPosition + 2], 3.0f);
     if (!vertexMatches || discard != 0 || color != 0xff1e140au) {
         std::cerr << "Compiled Common shader returned unexpected output\n";
         return 4;
@@ -231,6 +305,8 @@ int runSmokeTests() {
     std::cout << "Shader language vertex/fragment: OK\n";
 
     testUniformFields();
+    testNormalContract(shader, scriptedShader);
+    testRequiredWorldPosition();
 
     return 0;
 }

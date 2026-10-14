@@ -2,6 +2,7 @@
 
 #include <cctype>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -524,6 +525,10 @@ private:
             input_,
             isVertex ? I::Texcoord : V::Texcoord,
             2);
+        if (stage_ == Stage::Fragment) {
+            variables_["in.worldPosition"] = vectorFromPointer(
+                input_, shader_abi::Varying::WorldPosition, 3);
+        }
     }
 
     CodeValue emit(const Expression& expression) {
@@ -696,17 +701,17 @@ private:
             lengthSquared = builder_.CreateFAdd(
                 lengthSquared, builder_.CreateFMul(component, component));
         }
-        llvm::Value* minimum = llvm::ConstantFP::get(
-            builder_.getFloatTy(), 1.0e-16);
-        lengthSquared = builder_.CreateSelect(
-            builder_.CreateFCmpOLT(lengthSquared, minimum),
-            minimum,
-            lengthSquared);
+        llvm::Value* valid = builder_.CreateAnd(
+            builder_.CreateFCmpOGT(lengthSquared, scalar(1.0e-16f).components[0]),
+            builder_.CreateFCmpOLE(lengthSquared,
+                scalar(std::numeric_limits<float>::max()).components[0]));
         llvm::Value* length = builder_.CreateUnaryIntrinsic(
-            llvm::Intrinsic::sqrt, lengthSquared);
+            llvm::Intrinsic::sqrt,
+            builder_.CreateSelect(valid, lengthSquared, scalar(1.0f).components[0]));
         CodeValue result = arguments[0];
         for (llvm::Value*& component : result.components) {
-            component = builder_.CreateFDiv(component, length);
+            component = builder_.CreateSelect(valid,
+                builder_.CreateFDiv(component, length), scalar(0.0f).components[0]);
         }
         return result;
     }
@@ -785,6 +790,7 @@ private:
         return storeRequired("position", ValueKind::Vec4, V::Position) &&
             storeRequired("normal", ValueKind::Vec3, V::Normal) &&
             storeRequired("texcoord", ValueKind::Vec2, V::Texcoord) &&
+            storeRequired("worldPosition", ValueKind::Vec3, V::WorldPosition) &&
             (builder_.CreateRetVoid(), true);
     }
 

@@ -1,0 +1,15 @@
+// Test-only fragment probe: do not let the legacy Common lighting hide a
+// missing worldPosition field in the host's fragment-input packing.
+shader WorldPositionProbe {
+    vertex {
+        position = transform_point(mvp, in.position);
+        normal = in.normal;
+        texcoord = in.texcoord;
+        worldPosition = in.position;
+    }
+    fragment {
+        color = vec4(dot(in.worldPosition, vec3(1,0,0)),
+                     dot(in.worldPosition, vec3(0,1,0)),
+                     dot(in.worldPosition, vec3(0,0,1)), 1);
+    }
+}

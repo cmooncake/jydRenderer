@@ -3,7 +3,7 @@
 #include <cstdint>
 
 namespace jyd::shader_abi {
-	inline constexpr std::uint32_t Version = 1;
+	inline constexpr std::uint32_t Version = 2;
 
 	namespace VertexIn
 	{
@@ -11,7 +11,8 @@ namespace jyd::shader_abi {
 	}
 
 	namespace Varying {
-		inline constexpr int Position = 0, Normal = 4, Texcoord = 7, Count = 9;
+		inline constexpr int Position = 0, Normal = 4, Texcoord = 7;
+		inline constexpr int WorldPosition = 9, Count = 12;
 	}
 	namespace Uniform {
 		inline constexpr int Mvp = 0, View = 16, Camera = 32;

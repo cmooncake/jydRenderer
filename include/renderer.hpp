@@ -27,7 +27,7 @@ public:
 
     Camera& getCamera() { return camera; }
 	inline vec3 SpecularLightDirection() const { return normalize(vec3(1.0f, 1.0f, 1.0f)); }
-    inline vec3 DiffuseLightDirection() const { return normalize(vec3(0.0f, 0.0f, -1.0f)); }
+    inline vec3 DiffuseLightDirection() const { return vec3(0.0f, 0.0f, 1.0f); }
     inline vec3 AmbientLightColor() const { return vec3(0.8f, 0.8f, 0.8f); }
 
     void clear(const Color& color);
